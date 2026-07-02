@@ -513,7 +513,8 @@ BEGIN
     ST_Distance(p.geom::geography, ST_SetSRID(ST_MakePoint(p_lon, p_lat), 4326)::geography) AS distance_m,
     p.geom, p.district, p.sector, p.cell
   FROM ml.ml_opportunity_predictions p
-  WHERE p.business_category = p_category
+  JOIN ml.model_versions mv ON mv.id = p.model_version_id
+  WHERE p.business_category = p_category AND mv.is_active = TRUE
   ORDER BY p.geom <-> ST_SetSRID(ST_MakePoint(p_lon, p_lat), 4326)
   LIMIT 1;
 END;

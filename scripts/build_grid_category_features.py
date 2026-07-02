@@ -43,8 +43,11 @@ def main():
         COALESCE(sector_w.income_proxy, district_w.income_proxy, 0.0) AS income_proxy,
         COALESCE(100 - sector_w.poverty_proxy, 100 - district_w.poverty_proxy, 0.0) AS welfare_proxy
       FROM geo.analysis_grid g
+      -- Sector names are not unique nationally (30 sector names repeat across
+      -- different districts), so the sector-level join must also match district
+      -- or it fans out into duplicate rows per grid cell.
       LEFT JOIN curated.population_welfare_features sector_w
-        ON sector_w.area_level = 'sector' AND lower(sector_w.sector) = lower(g.sector)
+        ON sector_w.area_level = 'sector' AND lower(sector_w.sector) = lower(g.sector) AND lower(sector_w.district) = lower(g.district)
       LEFT JOIN curated.population_welfare_features district_w
         ON district_w.area_level = 'district' AND lower(district_w.district) = lower(g.district)
     ), feature_rows AS (

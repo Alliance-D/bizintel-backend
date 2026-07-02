@@ -8,7 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.core.config import get_settings
 from app.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
 from app.db.session import engine
-from app.api.routes import health, categories, opportunity, competitive, insights, admin, datasets, features, models, compare, reports, watchlists, auth, field_validation, tiles, notifications, live_layers, ml_opportunity, experience, workbench, security, readiness, platform, i18n, tutorial
+from app.api.routes import health, categories, opportunity, competitive, insights, admin, datasets, features, models, compare, reports, watchlists, auth, field_validation, tiles, notifications, ml_opportunity, experience, workbench, security, readiness, platform, i18n, tutorial
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,6 @@ app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(field_validation.router, prefix="/api/v1/field-validation", tags=["field-validation"])
 app.include_router(tiles.router, prefix="/api/v1/tiles", tags=["tiles"])
 app.include_router(notifications.router, prefix="/api/v1", tags=["notifications"])
-app.include_router(live_layers.router, prefix="/api/v1/live", tags=["live-layers"])
 app.include_router(ml_opportunity.router, prefix="/api/v1/ml-opportunity", tags=["ml-opportunity"])
 app.include_router(experience.router, prefix="/api/v1/experience", tags=["experience"])
 app.include_router(platform.router, prefix="/api/v1/platform", tags=["platform"])

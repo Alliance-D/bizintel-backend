@@ -1,4 +1,5 @@
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,16 +13,33 @@ from app.core.config import get_settings
 from app.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
 from app.core.rate_limit import limiter
 from app.db.session import engine
-from app.api.routes import health, categories, opportunity, competitive, insights, admin, datasets, features, models, compare, reports, watchlists, auth, field_validation, tiles, notifications, ml_opportunity, experience, workbench, security, readiness, platform, i18n, tutorial
+from app.api.routes import health, categories, opportunity, competitive, insights, admin, datasets, features, models, compare, reports, watchlists, auth, field_validation, tiles, notifications, ml_opportunity, experience, workbench, security, readiness, platform, i18n, tutorial, advisor, expansion
 
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Verify the schema is migrated; does not create it. Run `alembic upgrade head` first."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1 FROM ml.grid_category_features LIMIT 1"))
+    except SQLAlchemyError:
+        logger.error(
+            "Database schema is missing or out of date. Run 'alembic upgrade head' "
+            "before starting the API."
+        )
+        raise
+    yield
+
+
 app = FastAPI(
     title=settings.app_name,
     version="0.1.0",
     description="ML-based spatial business opportunity intelligence API.",
+    lifespan=lifespan,
 )
 
 app.state.limiter = limiter
@@ -62,20 +80,6 @@ def root() -> dict:
     }
 
 
-@app.on_event("startup")
-def startup() -> None:
-    """Verify the schema is migrated; does not create it. Run `alembic upgrade head` first."""
-    try:
-        with engine.connect() as conn:
-            conn.execute(text("SELECT 1 FROM ml.grid_category_features LIMIT 1"))
-    except SQLAlchemyError:
-        logger.error(
-            "Database schema is missing or out of date. Run 'alembic upgrade head' "
-            "before starting the API."
-        )
-        raise
-
-
 app.include_router(health.router, prefix="/api/v1", tags=["health"])
 app.include_router(categories.router, prefix="/api/v1", tags=["categories"])
 app.include_router(i18n.router, prefix="/api/v1", tags=["i18n"])
@@ -96,6 +100,8 @@ app.include_router(notifications.router, prefix="/api/v1", tags=["notifications"
 app.include_router(ml_opportunity.router, prefix="/api/v1/ml-opportunity", tags=["ml-opportunity"])
 app.include_router(experience.router, prefix="/api/v1/experience", tags=["experience"])
 app.include_router(platform.router, prefix="/api/v1/platform", tags=["platform"])
+app.include_router(advisor.router, prefix="/api/v1/platform", tags=["advisor"])
+app.include_router(expansion.router, prefix="/api/v1/platform", tags=["expansion"])
 app.include_router(workbench.router, prefix="/api/v1/workbench", tags=["workbench"])
 app.include_router(security.router, prefix="/api/v1/admin/security", tags=["security"])
 app.include_router(readiness.router, prefix="/api/v1/readiness", tags=["readiness"])

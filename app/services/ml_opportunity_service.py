@@ -96,6 +96,8 @@ def _prediction_payload(prediction: dict[str, Any], latitude: float, longitude: 
         "nearest_grid_id": prediction.get("grid_id"),
         "distance_to_grid_m": prediction.get("distance_m") or prediction.get("distance_to_grid_m"),
         "model_version_id": prediction.get("model_version_id"),
+        "district": prediction.get("district"),
+        "sector": prediction.get("sector"),
         "overall": {
             "opportunity_score": score,
             "opportunity_rank": prediction.get("opportunity_rank"),

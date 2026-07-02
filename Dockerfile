@@ -13,4 +13,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+RUN chmod +x docker-entrypoint.sh
+ENTRYPOINT ["./docker-entrypoint.sh"]
+
+# Production default: no --reload. The dev compose file overrides this
+# command to add --reload for local development.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

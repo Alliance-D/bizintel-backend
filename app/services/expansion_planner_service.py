@@ -12,6 +12,7 @@ top N opportunity cells regardless of where they are"):
 """
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from sqlalchemy import text
@@ -19,6 +20,14 @@ from sqlalchemy.orm import Session
 
 DEFAULT_MIN_DISTANCE_FROM_EXISTING_M = 600
 DEFAULT_MIN_SPACING_BETWEEN_CANDIDATES_M = 400
+
+
+def meters_between(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Equirectangular approximation - good enough at Kigali's scale (a few km) and avoids a DB round-trip per pair."""
+    r = 6371000
+    x = math.radians(lon2 - lon1) * math.cos(math.radians((lat1 + lat2) / 2))
+    y = math.radians(lat2 - lat1)
+    return math.sqrt(x * x + y * y) * r
 
 
 def plan_expansion(
@@ -47,14 +56,6 @@ def plan_expansion(
         return {"business_category": business_category, "candidates": [], "excluded_near_existing": 0}
 
     existing_points = [(loc["latitude"], loc["longitude"]) for loc in existing_locations if "latitude" in loc and "longitude" in loc]
-
-    def meters_between(lat1, lon1, lat2, lon2) -> float:
-        # Equirectangular approximation - good enough at Kigali's scale (a few km) and avoids a DB round-trip per pair.
-        import math
-        r = 6371000
-        x = math.radians(lon2 - lon1) * math.cos(math.radians((lat1 + lat2) / 2))
-        y = math.radians(lat2 - lat1)
-        return math.sqrt(x * x + y * y) * r
 
     excluded_near_existing = 0
     filtered = []

@@ -1,0 +1,38 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# Data (restricted / large / regenerable — see README for data sources)
+/data/raw/
+/data/processed/
+*.dta
+*.osm.pbf
+*.gpkg
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+*.dump
+
+# ML artifacts (regenerable via training pipeline; large binaries)
+ml/artifacts/
+*.joblib
+*.pkl
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db

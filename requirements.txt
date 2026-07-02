@@ -8,6 +8,7 @@ GeoAlchemy2==0.17.0
 alembic==1.14.0
 python-multipart==0.0.20
 passlib[bcrypt]==1.7.4
+bcrypt==4.0.1  # passlib 1.7.4 cannot detect bcrypt>=4.1's version string and mis-hashes passwords
 python-jose[cryptography]==3.3.0
 slowapi==0.1.9
 redis==5.2.1

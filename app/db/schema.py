@@ -411,16 +411,17 @@ CREATE TABLE IF NOT EXISTS app.user_preferences (
 CREATE TABLE IF NOT EXISTS app.audit_log (
   id BIGSERIAL PRIMARY KEY,
   action TEXT NOT NULL,
-  user_id BIGINT,
-  user_email TEXT,
-  user_role TEXT,
+  actor_user_id BIGINT,
+  actor_role TEXT,
   entity_type TEXT,
   entity_id TEXT,
   request_id TEXT,
-  ip_address TEXT,
+  ip_address INET,
   user_agent TEXT,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE INDEX IF NOT EXISTS idx_audit_log_created ON app.audit_log (created_at DESC);
 
 CREATE TABLE IF NOT EXISTS app.user_experience_events (
   id BIGSERIAL PRIMARY KEY,

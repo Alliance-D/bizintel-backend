@@ -10,25 +10,18 @@ import joblib
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
-
 
 def _artifact_root() -> Path:
-    settings = get_settings()
     return Path(os.getenv("MODEL_ARTIFACT_DIR", "ml/artifacts")).expanduser().resolve()
 
 
 def model_status(db: Session) -> dict[str, Any]:
-    """Return registry status and active model metadata.
-
-    The backend remains usable even before the SQL registry has been created.
-    """
+    """Return registry status and active model metadata."""
     try:
         total = db.execute(text("SELECT COUNT(*) FROM ml.model_versions")).scalar_one()
         active = db.execute(text("""
-            SELECT id, model_name, model_family, task_type, target_name,
-                   primary_metric, primary_metric_value, artifact_uri,
-                   created_at, activated_at
+            SELECT id, model_name, algorithm, target_name, business_category,
+                   artifact_path, metrics, is_active, created_at, activated_at
             FROM ml.model_versions
             WHERE is_active = TRUE
             ORDER BY activated_at DESC NULLS LAST, created_at DESC
@@ -42,95 +35,91 @@ def model_status(db: Session) -> dict[str, Any]:
             "message": f"Model registry not ready: {exc.__class__.__name__}",
         }
 
+    active_model = None
+    if active:
+        active_model = dict(active)
+        best_metrics = (active_model.get("metrics") or {}).get("best", {}).get("metrics", {})
+        active_model["primary_metric"] = "mae"
+        active_model["primary_metric_value"] = best_metrics.get("mae")
+
     return {
         "registry_ready": True,
         "model_count": int(total or 0),
-        "active_model": dict(active) if active else None,
+        "active_model": active_model,
     }
 
 
 def list_model_versions(db: Session, limit: int = 50) -> list[dict[str, Any]]:
     try:
         rows = db.execute(text("""
-            SELECT id, model_name, model_family, task_type, business_scope,
-                   target_name, feature_set_name, primary_metric,
-                   primary_metric_value, is_active, created_at, activated_at,
-                   training_rows, validation_rows, model_notes
+            SELECT id, model_name, algorithm, target_name, business_category,
+                   is_active, created_at, activated_at, metrics
             FROM ml.model_versions
             ORDER BY created_at DESC
             LIMIT :limit
         """), {"limit": limit}).mappings().all()
     except Exception:
         return []
-    return [dict(r) for r in rows]
+    versions = []
+    for r in rows:
+        row = dict(r)
+        best = (row.get("metrics") or {}).get("best", {})
+        row["primary_metric"] = "mae"
+        row["primary_metric_value"] = best.get("metrics", {}).get("mae")
+        versions.append(row)
+    return versions
 
 
 def list_model_metrics(db: Session, model_version_id: int | None = None, limit: int = 200) -> list[dict[str, Any]]:
+    """Per-candidate-model metrics from the comparison stored on ml.model_versions.metrics
+    (there is no separate metrics table - one training run compares several models at once
+    and keeps the full comparison, not just the winner)."""
     try:
         if model_version_id:
-            rows = db.execute(text("""
-                SELECT model_version_id, split_name, metric_name, metric_value, created_at
-                FROM ml.model_metrics
-                WHERE model_version_id = :model_version_id
-                ORDER BY split_name, metric_name
-                LIMIT :limit
-            """), {"model_version_id": model_version_id, "limit": limit}).mappings().all()
+            rows = db.execute(text("SELECT id, metrics, created_at FROM ml.model_versions WHERE id = :id"), {"id": model_version_id}).mappings().all()
         else:
-            rows = db.execute(text("""
-                SELECT model_version_id, split_name, metric_name, metric_value, created_at
-                FROM ml.model_metrics
-                ORDER BY created_at DESC
-                LIMIT :limit
-            """), {"limit": limit}).mappings().all()
+            rows = db.execute(text("SELECT id, metrics, created_at FROM ml.model_versions ORDER BY created_at DESC LIMIT :limit"), {"limit": limit}).mappings().all()
     except Exception:
         return []
-    return [dict(r) for r in rows]
+
+    out = []
+    for row in rows:
+        candidates = (row["metrics"] or {}).get("all_candidates", [])
+        for candidate in candidates:
+            for metric_name, metric_value in (candidate.get("metrics") or {}).items():
+                out.append({
+                    "model_version_id": row["id"],
+                    "algorithm": candidate.get("algorithm"),
+                    "metric_name": metric_name,
+                    "metric_value": metric_value,
+                    "created_at": row["created_at"],
+                })
+    return out[:limit]
 
 
 def list_feature_importance(db: Session, model_version_id: int | None = None, limit: int = 50) -> list[dict[str, Any]]:
+    """SHAP-based feature importance, computed once during training and stored on
+    ml.model_versions.metrics.shap_top_features (see scripts/train_and_score_opportunity_model.py)."""
     try:
         if model_version_id:
-            rows = db.execute(text("""
-                SELECT model_version_id, feature_name, importance_value, rank, source
-                FROM ml.feature_importance
-                WHERE model_version_id = :model_version_id
-                ORDER BY rank NULLS LAST, importance_value DESC
-                LIMIT :limit
-            """), {"model_version_id": model_version_id, "limit": limit}).mappings().all()
+            row = db.execute(text("SELECT id, metrics FROM ml.model_versions WHERE id = :id"), {"id": model_version_id}).mappings().first()
         else:
-            rows = db.execute(text("""
-                SELECT fi.model_version_id, fi.feature_name, fi.importance_value, fi.rank, fi.source
-                FROM ml.feature_importance fi
-                JOIN ml.model_versions mv ON mv.id = fi.model_version_id
-                WHERE mv.is_active = TRUE
-                ORDER BY fi.rank NULLS LAST, fi.importance_value DESC
-                LIMIT :limit
-            """), {"limit": limit}).mappings().all()
+            row = db.execute(text("SELECT id, metrics FROM ml.model_versions WHERE is_active = TRUE LIMIT 1")).mappings().first()
     except Exception:
         return []
-    return [dict(r) for r in rows]
-
-
-def get_active_model_record(db: Session, task_type: str | None = None, target_name: str | None = None) -> dict[str, Any] | None:
-    clauses = ["is_active = TRUE"]
-    params: dict[str, Any] = {}
-    if task_type:
-        clauses.append("task_type = :task_type")
-        params["task_type"] = task_type
-    if target_name:
-        clauses.append("target_name = :target_name")
-        params["target_name"] = target_name
-    where = " AND ".join(clauses)
-    try:
-        row = db.execute(text(f"""
-            SELECT * FROM ml.model_versions
-            WHERE {where}
-            ORDER BY activated_at DESC NULLS LAST, created_at DESC
-            LIMIT 1
-        """), params).mappings().first()
-    except Exception:
-        return None
-    return dict(row) if row else None
+    if not row:
+        return []
+    shap_features = (row["metrics"] or {}).get("shap_top_features") or []
+    return [
+        {
+            "model_version_id": row["id"],
+            "feature_name": f["feature"],
+            "importance_value": f["mean_abs_shap"],
+            "rank": idx + 1,
+            "source": "shap_mean_abs",
+        }
+        for idx, f in enumerate(shap_features[:limit])
+    ]
 
 
 @lru_cache(maxsize=8)

@@ -295,8 +295,8 @@ def main():
                 # comparison metrics for prior versions stay in ml.model_versions.metrics.
                 conn.execute(text("DELETE FROM ml.ml_opportunity_predictions WHERE model_version_id = ANY(:ids)"), {"ids": deactivated_ids})
         version_id = conn.execute(text("""
-            INSERT INTO ml.model_versions (model_name, business_category, target_name, algorithm, artifact_path, metrics, feature_columns, is_active)
-            VALUES ('opportunity_index_model', NULL, :target, :algorithm, :artifact_path, CAST(:metrics AS jsonb), :features, :active)
+            INSERT INTO ml.model_versions (model_name, business_category, target_name, algorithm, artifact_path, metrics, feature_columns, is_active, activated_at)
+            VALUES ('opportunity_index_model', NULL, :target, :algorithm, :artifact_path, CAST(:metrics AS jsonb), :features, :active, CASE WHEN :active THEN now() ELSE NULL END)
             RETURNING id
         """), {
             "target": TARGET,

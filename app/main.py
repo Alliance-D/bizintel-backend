@@ -1,12 +1,16 @@
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import get_settings
 from app.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
+from app.core.rate_limit import limiter
 from app.db.session import engine
 from app.api.routes import health, categories, opportunity, competitive, insights, admin, datasets, features, models, compare, reports, watchlists, auth, field_validation, tiles, notifications, ml_opportunity, experience, workbench, security, readiness, platform, i18n, tutorial
 
@@ -20,6 +24,12 @@ app = FastAPI(
     description="ML-based spatial business opportunity intelligence API.",
 )
 
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, lambda request, exc: JSONResponse(
+    status_code=429, content={"detail": "Too many requests. Please try again shortly."},
+))
+app.add_middleware(SlowAPIMiddleware)
+
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestContextMiddleware)
 
@@ -30,6 +40,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    request_id = getattr(request.state, "request_id", None)
+    logger.exception("Unhandled error on %s %s (request_id=%s)", request.method, request.url.path, request_id)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An unexpected error occurred.", "request_id": request_id},
+    )
 
 
 @app.get("/")

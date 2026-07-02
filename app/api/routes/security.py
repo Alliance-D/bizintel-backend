@@ -26,14 +26,15 @@ def audit_log(
 
 @router.get('/usage')
 def api_usage(
-    limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db),
     user: dict = Depends(require_min_role('admin')),
 ) -> dict:
+    """Activity counts by action, from the audit log. Per-route latency tracking
+    is not implemented yet - this reports what is actually recorded today."""
     rows = db.execute(text('''
-        SELECT route, method, status_code, latency_ms, request_id, created_at
-        FROM app.api_usage_events
-        ORDER BY created_at DESC
-        LIMIT :limit
-    '''), {'limit': limit}).mappings().all()
-    return {'events': [dict(row) for row in rows]}
+        SELECT action, COUNT(*) AS event_count, MAX(created_at) AS last_seen
+        FROM app.audit_log
+        GROUP BY action
+        ORDER BY event_count DESC
+    ''')).mappings().all()
+    return {'activity_by_action': [dict(row) for row in rows]}

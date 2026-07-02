@@ -5,12 +5,13 @@ from sqlalchemy.orm import Session
 
 
 def list_datasets(db: Session, limit: int = 200) -> list[dict]:
+    """Real import history from raw.dataset_imports, written by each import script."""
     try:
         rows = db.execute(text("""
-            SELECT dataset_key, title, owner, license_status, permission_status,
-                   recommended_layer, relevance, rows_estimate, columns_count, size_mb, imported_at, notes
-            FROM meta.dataset_catalog
-            ORDER BY size_mb DESC NULLS LAST, title
+            SELECT dataset_key, source_path, source_owner, license_status, permission_status,
+                   rows_imported, import_status, message, started_at, finished_at
+            FROM raw.dataset_imports
+            ORDER BY finished_at DESC NULLS LAST, started_at DESC
             LIMIT :limit
         """), {"limit": limit}).mappings().all()
         return [dict(r) for r in rows]
@@ -36,12 +37,14 @@ def list_features(db: Session, limit: int = 300) -> list[dict]:
 def data_health(db: Session) -> dict:
     checks = {}
     for key, query in {
-        "population_density_points": "SELECT COUNT(*) FROM geo.population_density_grid",
+        "population_density_points": "SELECT COUNT(*) FROM curated.population_density_points",
         "analysis_grid_cells": "SELECT COUNT(*) FROM geo.analysis_grid",
-        "osm_pois": "SELECT COUNT(*) FROM geo.osm_pois",
-        "osm_roads": "SELECT COUNT(*) FROM geo.osm_roads",
-        "training_feature_rows": "SELECT COUNT(*) FROM ml.training_features",
-        "dataset_catalog_rows": "SELECT COUNT(*) FROM meta.dataset_catalog",
+        "osm_pois": "SELECT COUNT(*) FROM curated.osm_poi_features",
+        "establishment_area_rows": "SELECT COUNT(*) FROM curated.establishment_area_features",
+        "population_welfare_rows": "SELECT COUNT(*) FROM curated.population_welfare_features",
+        "grid_category_feature_rows": "SELECT COUNT(*) FROM ml.grid_category_features",
+        "ml_predictions": "SELECT COUNT(*) FROM ml.ml_opportunity_predictions",
+        "active_model_versions": "SELECT COUNT(*) FROM ml.model_versions WHERE is_active",
     }.items():
         try:
             checks[key] = db.execute(text(query)).scalar_one()
@@ -49,6 +52,6 @@ def data_health(db: Session) -> dict:
             checks[key] = None
     ready_for_training = bool(
         (checks.get("analysis_grid_cells") or 0) > 0
-        and (checks.get("training_feature_rows") or 0) > 0
+        and (checks.get("grid_category_feature_rows") or 0) > 0
     )
     return {"checks": checks, "ready_for_training": ready_for_training}

@@ -1,10 +1,16 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+
 from app.core.config import get_settings
 from app.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
 from app.db.session import engine
-from app.db.bootstrap import bootstrap_database
 from app.api.routes import health, categories, opportunity, competitive, insights, admin, datasets, features, models, compare, reports, watchlists, auth, field_validation, tiles, notifications, live_layers, ml_opportunity, experience, workbench, security, readiness, platform, i18n, tutorial
+
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
@@ -38,7 +44,16 @@ def root() -> dict:
 
 @app.on_event("startup")
 def startup() -> None:
-    bootstrap_database(engine)
+    """Verify the schema is migrated; does not create it. Run `alembic upgrade head` first."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1 FROM ml.grid_category_features LIMIT 1"))
+    except SQLAlchemyError:
+        logger.error(
+            "Database schema is missing or out of date. Run 'alembic upgrade head' "
+            "before starting the API."
+        )
+        raise
 
 
 app.include_router(health.router, prefix="/api/v1", tags=["health"])

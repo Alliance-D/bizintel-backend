@@ -6,6 +6,9 @@ Prerequisites:
     python scripts/import_osm_business_features.py --truncate
     python scripts/import_population_density.py data/raw/rwa_pd_2020_1km_ASCII_XYZ.csv --truncate
     python scripts/import_population_count.py data/raw/population_count_6456351076777895603.csv --truncate
+    python scripts/import_establishment_census.py "<path to establishment census .dta>" --truncate
+    python scripts/import_population_welfare.py "<path to PHC5 .dta>" --truncate
+    python scripts/import_district_socioeconomic.py --lfs "<LFS .dta>" --vup "<VUP welfare .dta>" --truncate
 """
 from __future__ import annotations
 
@@ -32,9 +35,22 @@ def main():
     ), base AS (
       SELECT g.grid_id, c.category_key AS business_category, g.geom, g.centroid, g.district, g.sector, g.cell
       FROM geo.analysis_grid g CROSS JOIN categories c
+    ), grid_welfare AS (
+      -- Resolved once per grid cell (not per cell x category): prefer a
+      -- sector-level PHC5 match, fall back to the district-level LFS/VUP row.
+      SELECT g.grid_id,
+        COALESCE(sector_w.employment_rate, district_w.employment_rate, 0.0) AS employment_rate,
+        COALESCE(sector_w.income_proxy, district_w.income_proxy, 0.0) AS income_proxy,
+        COALESCE(100 - sector_w.poverty_proxy, 100 - district_w.poverty_proxy, 0.0) AS welfare_proxy
+      FROM geo.analysis_grid g
+      LEFT JOIN curated.population_welfare_features sector_w
+        ON sector_w.area_level = 'sector' AND lower(sector_w.sector) = lower(g.sector)
+      LEFT JOIN curated.population_welfare_features district_w
+        ON district_w.area_level = 'district' AND lower(district_w.district) = lower(g.district)
     ), feature_rows AS (
       SELECT
         b.*,
+        gw.employment_rate, gw.income_proxy, gw.welfare_proxy,
         COALESCE((SELECT AVG(p.population_density) FROM curated.population_density_points p WHERE ST_DWithin(p.geom::geography, b.centroid::geography, 500)), 0) AS population_density_500m,
         COALESCE((SELECT AVG(p.population_density) FROM curated.population_density_points p WHERE ST_DWithin(p.geom::geography, b.centroid::geography, 1000)), 0) AS population_density_1000m,
         COALESCE((SELECT pc.total_population FROM curated.population_count_features pc WHERE lower(pc.district) = lower(COALESCE(b.district, pc.district)) AND (b.sector IS NULL OR lower(pc.sector) = lower(b.sector)) ORDER BY pc.period DESC LIMIT 1), 0) AS sector_population,
@@ -50,11 +66,9 @@ def main():
         COALESCE((SELECT COUNT(*) FROM curated.osm_poi_features o WHERE o.category_key = 'health' AND ST_DWithin(o.geom::geography, b.centroid::geography, 1000)), 0) AS health_facility_count_1000m,
         COALESCE((SELECT COUNT(*) FROM curated.osm_poi_features o WHERE o.category_key = 'transport' AND ST_DWithin(o.geom::geography, b.centroid::geography, 500)), 0) AS bus_stop_count_500m,
         COALESCE((SELECT MIN(ST_Distance(o.geom::geography, b.centroid::geography)) FROM curated.osm_poi_features o WHERE o.category_key = 'transport'), 2500) AS nearest_bus_stop_m,
-        COALESCE((SELECT SUM(e.establishment_count) FROM curated.establishment_area_features e WHERE e.business_category = b.business_category AND (e.district IS NULL OR b.district IS NULL OR lower(e.district) = lower(b.district)) AND (e.sector IS NULL OR b.sector IS NULL OR lower(e.sector) = lower(b.sector))), 0) AS establishment_category_count_area,
-        0.0 AS employment_rate,
-        0.0 AS income_proxy,
-        0.0 AS welfare_proxy
+        COALESCE((SELECT SUM(e.establishment_count) FROM curated.establishment_area_features e WHERE e.business_category = b.business_category AND (e.district IS NULL OR b.district IS NULL OR lower(e.district) = lower(b.district)) AND (e.sector IS NULL OR b.sector IS NULL OR lower(e.sector) = lower(b.sector))), 0) AS establishment_category_count_area
       FROM base b
+      JOIN grid_welfare gw ON gw.grid_id = b.grid_id
     ), scored AS (
       SELECT fr.*,
         curated.score_from_count(population_density_500m, NULLIF((SELECT percentile_cont(0.95) WITHIN GROUP (ORDER BY population_density_500m) FROM feature_rows), 0)) AS demand_raw,
@@ -70,7 +84,7 @@ def main():
           s.access_raw * p.access_weight +
           s.activity_raw * p.commercial_weight +
           GREATEST(0, 100 - s.competition_raw) * p.competition_weight +
-          ((s.demand_raw * 0.6) + (s.activity_raw * 0.25) + (GREATEST(0, 100 - s.competition_raw) * 0.15)) * p.welfare_weight
+          s.welfare_proxy * p.welfare_weight
         )) AS opportunity_gap_score_calc
       FROM scored s
       JOIN curated.business_category_profiles p ON p.category_key = s.business_category
@@ -96,7 +110,7 @@ def main():
       market_distance_m, school_count_1000m, health_facility_count_1000m, bus_stop_count_500m, nearest_bus_stop_m,
       establishment_category_count_area, 0,
       demand_raw, access_raw, activity_raw, competition_raw,
-      (demand_raw * 0.6 + activity_raw * 0.25 + GREATEST(0, 100 - competition_raw) * 0.15),
+      welfare_proxy,
       opportunity_gap_score_calc, confidence_raw,
       CASE WHEN competitor_count_1000m > 0 OR establishment_category_count_area > 0 THEN 1 ELSE 0 END,
       competitor_count_1000m + establishment_category_count_area,

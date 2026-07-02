@@ -5,8 +5,8 @@ Supported inputs:
 - CSV with a WKT geometry column such as geometry, geom, wkt, WKT
 
 Examples:
-    python scripts/import_admin_boundaries_phase27.py data/raw/kigali_districts.geojson --level district --truncate-level
-    python scripts/import_admin_boundaries_phase27.py data/raw/kigali_sectors.csv --level sector --wkt-column geometry
+    python scripts/import_admin_boundaries.py data/raw/kigali_districts.geojson --level district --truncate-level
+    python scripts/import_admin_boundaries.py data/raw/kigali_sectors.csv --level sector --wkt-column geometry
 """
 from __future__ import annotations
 

@@ -1,156 +1,114 @@
-"""Build curated OSM business/POI feature layer from osm2pgsql tables.
+"""Normalize OSM businesses and POIs into curated.osm_poi_features.
 
-This script expects an OSM extract already loaded into PostGIS by osm2pgsql.
-It reads planet_osm_point and planet_osm_polygon, normalizes relevant tags into
-curated.osm_poi_features, and maps POIs to platform business categories.
+This expects OSM to be loaded into PostGIS with osm2pgsql tables:
+planet_osm_point and/or planet_osm_polygon.
 
-Example:
-    DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/bizintel \
-    python scripts/import_osm_business_features.py --truncate
+Priority business categories:
+pharmacy, restaurant including fast_food, cafe, grocery/supermarket, salon/personal care.
+Support layers are also imported for access, demand generators and commercial activity.
 """
 from __future__ import annotations
 
 import argparse
 import os
-from dataclasses import dataclass
-from typing import Iterable
-
 from sqlalchemy import create_engine, inspect, text
 
 CATEGORY_TAGS = {
-    "salon": [("shop", "hairdresser"), ("shop", "beauty"), ("shop", "cosmetics")],
     "pharmacy": [("amenity", "pharmacy"), ("healthcare", "pharmacy")],
-    "cafe": [("amenity", "cafe"), ("amenity", "restaurant"), ("amenity", "fast_food")],
-    "grocery": [("shop", "convenience"), ("shop", "supermarket"), ("shop", "grocery")],
-    "retail": [("shop", "mall"), ("shop", "clothes"), ("shop", "general"), ("shop", "department_store")],
-    "market": [("amenity", "marketplace")],
+    "restaurant": [("amenity", "restaurant"), ("amenity", "fast_food"), ("amenity", "food_court")],
+    "cafe": [("amenity", "cafe")],
+    "grocery": [("shop", "supermarket"), ("shop", "grocery"), ("shop", "convenience"), ("shop", "greengrocer")],
+    "salon": [("shop", "hairdresser"), ("shop", "beauty"), ("shop", "cosmetics"), ("amenity", "barber")],
+    "transport": [("highway", "bus_stop"), ("amenity", "bus_station"), ("public_transport", "station")],
     "school": [("amenity", "school"), ("amenity", "university"), ("amenity", "college")],
     "health": [("amenity", "hospital"), ("amenity", "clinic"), ("healthcare", "clinic"), ("healthcare", "hospital")],
-    "transport": [("highway", "bus_stop"), ("amenity", "bus_station"), ("public_transport", "station")],
-    "finance": [("amenity", "bank"), ("amenity", "atm"), ("office", "financial")],
-    "hotel": [("tourism", "hotel"), ("tourism", "guest_house")],
+    "market": [("amenity", "marketplace")],
+    "finance": [("amenity", "bank"), ("amenity", "atm")],
+    "commercial_support": [("shop", "mall"), ("shop", "department_store"), ("shop", "clothes"), ("shop", "general")],
 }
 
-ALL_KEYS = sorted({k for rules in CATEGORY_TAGS.values() for k, _ in rules} | {"name", "osm_id"})
+KEYS = ["name", "shop", "amenity", "healthcare", "tourism", "office", "highway", "public_transport", "landuse"]
 
 
-def get_engine():
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        raise RuntimeError("DATABASE_URL environment variable is required.")
-    return create_engine(database_url)
+def engine():
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        raise SystemExit("DATABASE_URL is required")
+    return create_engine(url)
 
 
-def table_exists(engine, name: str) -> bool:
-    schema = None
-    table = name
-    if "." in name:
-        schema, table = name.split(".", 1)
-    return inspect(engine).has_table(table, schema=schema)
+def exists(eng, table: str) -> bool:
+    return inspect(eng).has_table(table)
 
 
-def source_tables(engine) -> list[tuple[str, str]]:
-    candidates = []
-    if table_exists(engine, "planet_osm_point"):
-        candidates.append(("planet_osm_point", "point"))
-    if table_exists(engine, "planet_osm_polygon"):
-        candidates.append(("planet_osm_polygon", "polygon"))
-    if not candidates:
-        raise RuntimeError("No osm2pgsql tables found. Expected planet_osm_point and/or planet_osm_polygon.")
-    return candidates
-
-
-def create_filter_sql(alias: str = "src") -> str:
-    clauses = []
+def clauses(alias: str) -> str:
+    parts = []
     for rules in CATEGORY_TAGS.values():
         for key, value in rules:
-            if value == "*":
-                clauses.append(f"{alias}.\"{key}\" IS NOT NULL")
-            else:
-                clauses.append(f"{alias}.\"{key}\" = '{value}'")
-    return " OR ".join(sorted(set(clauses)))
+            parts.append(f'{alias}."{key}" = \'{value}\'')
+    return " OR ".join(sorted(set(parts)))
 
 
-def category_case(alias: str = "src") -> str:
+def category_case(alias: str) -> str:
     parts = []
     for category, rules in CATEGORY_TAGS.items():
-        conds = []
-        for key, value in rules:
-            if value == "*":
-                conds.append(f"{alias}.\"{key}\" IS NOT NULL")
-            else:
-                conds.append(f"{alias}.\"{key}\" = '{value}'")
-        parts.append(f"WHEN {' OR '.join(conds)} THEN '{category}'")
+        cond = " OR ".join(f'{alias}."{k}" = \'{v}\'' for k, v in rules)
+        parts.append(f"WHEN {cond} THEN '{category}'")
     return "CASE " + " ".join(parts) + " ELSE 'other' END"
 
 
-def primary_key_case(alias: str = "src") -> str:
-    cases = []
-    for key in ["shop", "amenity", "healthcare", "tourism", "office", "highway", "public_transport", "landuse"]:
-        cases.append(f"WHEN {alias}.\"{key}\" IS NOT NULL THEN '{key}'")
-    return "CASE " + " ".join(cases) + " ELSE 'unknown' END"
+def primary_key_case(alias: str) -> str:
+    return "CASE " + " ".join(f'WHEN {alias}."{k}" IS NOT NULL THEN \'{k}\'' for k in KEYS[1:]) + " ELSE 'unknown' END"
 
 
-def primary_value_case(alias: str = "src") -> str:
-    cases = []
-    for key in ["shop", "amenity", "healthcare", "tourism", "office", "highway", "public_transport", "landuse"]:
-        cases.append(f"WHEN {alias}.\"{key}\" IS NOT NULL THEN {alias}.\"{key}\"")
-    return "CASE " + " ".join(cases) + " ELSE 'unknown' END"
+def primary_value_case(alias: str) -> str:
+    return "CASE " + " ".join(f'WHEN {alias}."{k}" IS NOT NULL THEN {alias}."{k}"' for k in KEYS[1:]) + " ELSE 'unknown' END"
 
 
-def insert_from_source(engine, table: str, layer_type: str, limit: int | None = None) -> int:
-    where = create_filter_sql("src")
-    limit_clause = "" if limit is None else f"LIMIT {int(limit)}"
-    geom_expr = "ST_Transform(src.way, 4326)" if layer_type == "point" else "ST_PointOnSurface(ST_Transform(src.way, 4326))"
-
-    tag_pairs = []
-    for key in ["name", "shop", "amenity", "healthcare", "tourism", "office", "highway", "public_transport", "landuse"]:
-        tag_pairs.extend([f"'{key}'", f"src.\"{key}\""])
-    tags_expr = "jsonb_strip_nulls(jsonb_build_object(" + ", ".join(tag_pairs) + "))"
-
+def insert_from(eng, table: str, polygon: bool, limit: int | None) -> int:
+    geom = "ST_PointOnSurface(ST_Transform(src.way, 4326))" if polygon else "ST_Transform(src.way, 4326)"
+    tags = []
+    for key in KEYS:
+        tags.extend([f"'{key}'", f'src."{key}"'])
+    limit_sql = "" if limit is None else f"LIMIT {int(limit)}"
     sql = f"""
-        WITH inserted AS (
-            INSERT INTO curated.osm_poi_features (
-                osm_id, name, category_key, primary_key, primary_value, tags, source_layer, geom
-            )
-            SELECT
-                src.osm_id::text AS osm_id,
-                src.name,
-                {category_case('src')} AS category_key,
-                {primary_key_case('src')} AS primary_key,
-                {primary_value_case('src')} AS primary_value,
-                {tags_expr} AS tags,
-                '{table}' AS source_layer,
-                {geom_expr} AS geom
-            FROM {table} src
-            WHERE ({where})
-              AND src.way IS NOT NULL
-            {limit_clause}
-            RETURNING 1
-        )
-        SELECT COUNT(*) FROM inserted;
+    WITH inserted AS (
+      INSERT INTO curated.osm_poi_features (osm_id, name, category_key, primary_key, primary_value, tags, source_layer, geom)
+      SELECT src.osm_id::text, src.name, {category_case('src')}, {primary_key_case('src')}, {primary_value_case('src')},
+             jsonb_strip_nulls(jsonb_build_object({', '.join(tags)})), '{table}', {geom}
+      FROM {table} src
+      WHERE src.way IS NOT NULL AND ({clauses('src')})
+      {limit_sql}
+      ON CONFLICT DO NOTHING
+      RETURNING 1
+    ) SELECT COUNT(*) FROM inserted
     """
-    with engine.begin() as conn:
+    with eng.begin() as conn:
         return int(conn.execute(text(sql)).scalar() or 0)
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--truncate", action="store_true", help="Clear curated.osm_poi_features before import.")
-    parser.add_argument("--limit", type=int, default=None, help="Optional per-source-table row limit for testing.")
+    parser.add_argument("--truncate", action="store_true")
+    parser.add_argument("--limit", type=int)
     args = parser.parse_args()
-
-    engine = get_engine()
-    with engine.begin() as conn:
+    eng = engine()
+    sources = []
+    if exists(eng, "planet_osm_point"):
+        sources.append(("planet_osm_point", False))
+    if exists(eng, "planet_osm_polygon"):
+        sources.append(("planet_osm_polygon", True))
+    if not sources:
+        raise SystemExit("No osm2pgsql tables found. Load your Rwanda/Kigali OSM extract first.")
+    with eng.begin() as conn:
         if args.truncate:
             conn.execute(text("TRUNCATE curated.osm_poi_features RESTART IDENTITY"))
-
     total = 0
-    for table, layer_type in source_tables(engine):
-        count = insert_from_source(engine, table, layer_type, args.limit)
+    for table, polygon in sources:
+        count = insert_from(eng, table, polygon, args.limit)
+        print(f"Imported {count:,} rows from {table}")
         total += count
-        print(f"Imported {count:,} rows from {table}.")
-    print(f"Done. Total OSM POI/business features imported: {total:,}")
+    print(f"Done. Imported {total:,} OSM businesses and POIs")
 
 
 if __name__ == "__main__":

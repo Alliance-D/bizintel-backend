@@ -1,7 +1,7 @@
-"""Bootstrap the Phase 27 PostGIS data layer.
+"""Bootstrap the PostGIS data layer (schemas, tables, and views).
 
 Run from the project root after DATABASE_URL is set:
-    python scripts/phase27_bootstrap_data_layer.py
+    python scripts/bootstrap_data_layer.py
 """
 from __future__ import annotations
 

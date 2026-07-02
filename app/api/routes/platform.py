@@ -121,7 +121,7 @@ def map_quality_summary(db: Session = Depends(get_db)) -> dict:
         if not _map_quality_available(db):
             return {
                 "status": "not_configured",
-                "message": "Run scripts/phase36_audit_map_quality.py to create the map quality layer.",
+                "message": "Run scripts/audit_map_quality.py to create the map quality layer.",
                 "summary": [],
             }
         summary = db.execute(text("""

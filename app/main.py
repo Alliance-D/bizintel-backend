@@ -4,7 +4,7 @@ from app.core.config import get_settings
 from app.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
 from app.db.session import engine
 from app.db.bootstrap import bootstrap_database
-from app.api.routes import health, categories, scout, opportunity, competitive, insights, admin, datasets, features, models, compare, reports, watchlists, auth, field_validation, tiles, notifications, live_layers, ml_opportunity, experience, workbench, security, readiness, platform, i18n, tutorial
+from app.api.routes import health, categories, opportunity, competitive, insights, admin, datasets, features, models, compare, reports, watchlists, auth, field_validation, tiles, notifications, live_layers, ml_opportunity, experience, workbench, security, readiness, platform, i18n, tutorial
 
 settings = get_settings()
 
@@ -45,7 +45,6 @@ app.include_router(health.router, prefix="/api/v1", tags=["health"])
 app.include_router(categories.router, prefix="/api/v1", tags=["categories"])
 app.include_router(i18n.router, prefix="/api/v1", tags=["i18n"])
 app.include_router(tutorial.router, prefix="/api/v1", tags=["tutorial"])
-app.include_router(scout.router, prefix="/api/v1/scout", tags=["scout"])
 app.include_router(opportunity.router, prefix="/api/v1/opportunity", tags=["opportunity"])
 app.include_router(competitive.router, prefix="/api/v1/competitive", tags=["competitive"])
 app.include_router(insights.router, prefix="/api/v1/insights", tags=["insights"])

@@ -1,43 +1,57 @@
-"""Import Rwanda population density XYZ CSV into PostGIS.
+"""Import population density CSV into curated.population_density_points.
 
-Expected columns: X, Y, Z or lon, lat, density.
-Run from project root after configuring DATABASE_URL.
+Expected columns: X longitude, Y latitude, Z population density.
+Example:
+    python scripts/import_population_density.py data/raw/rwa_pd_2020_1km_ASCII_XYZ.csv --truncate
 """
+from __future__ import annotations
+
+import argparse
 import os
 import pandas as pd
 from sqlalchemy import create_engine, text
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+psycopg://postgres:postgres@localhost:5432/bizintel")
-CSV_PATH = os.getenv("POP_DENSITY_CSV", "data/raw/rwa_pd_2020_1km_ASCII_XYZ.csv")
+
+def engine():
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        raise SystemExit("DATABASE_URL is required")
+    return create_engine(url)
 
 
-def main() -> None:
-    engine = create_engine(DATABASE_URL)
-    df = pd.read_csv(CSV_PATH)
-    df.columns = [c.strip().lower() for c in df.columns]
-
-    lon_col = "x" if "x" in df.columns else "lon"
-    lat_col = "y" if "y" in df.columns else "lat"
-    density_col = "z" if "z" in df.columns else "density"
-
-    with engine.begin() as conn:
-        conn.execute(text("TRUNCATE geo.population_density_grid"))
-        for chunk_start in range(0, len(df), 5000):
-            chunk = df.iloc[chunk_start:chunk_start + 5000]
-            rows = [
-                {"density": float(r[density_col]), "lon": float(r[lon_col]), "lat": float(r[lat_col])}
-                for _, r in chunk.iterrows()
-            ]
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO geo.population_density_grid (density, geom)
-                    VALUES (:density, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326))
-                    """
-                ),
-                rows,
-            )
-    print(f"Imported {len(df):,} population density points")
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("csv_path")
+    parser.add_argument("--truncate", action="store_true")
+    parser.add_argument("--chunksize", type=int, default=50000)
+    args = parser.parse_args()
+    eng = engine()
+    total = 0
+    with eng.begin() as conn:
+        if args.truncate:
+            conn.execute(text("TRUNCATE curated.population_density_points RESTART IDENTITY"))
+    for chunk in pd.read_csv(args.csv_path, chunksize=args.chunksize):
+        required = {"X", "Y", "Z"}
+        missing = required.difference(chunk.columns)
+        if missing:
+            raise SystemExit(f"Missing required columns: {sorted(missing)}")
+        rows = [
+            {"x": float(row.X), "y": float(row.Y), "z": float(row.Z)}
+            for row in chunk.itertuples(index=False)
+            if pd.notna(row.X) and pd.notna(row.Y) and pd.notna(row.Z)
+        ]
+        if rows:
+            with eng.begin() as conn:
+                conn.execute(
+                    text("""
+                        INSERT INTO curated.population_density_points (population_density, geom)
+                        VALUES (:z, ST_SetSRID(ST_MakePoint(:x, :y), 4326))
+                    """),
+                    rows,
+                )
+        total += len(rows)
+        print(f"Imported {total:,} population density points")
+    print(f"Done. Imported {total:,} population density points")
 
 
 if __name__ == "__main__":

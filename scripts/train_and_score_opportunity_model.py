@@ -6,7 +6,7 @@ can be used to calibrate the target, but field notes should not replace the
 core public-data training matrix.
 
 Example:
-    python scripts/train_and_score_phase27.py --activate
+    python scripts/train_and_score_opportunity_model.py --activate
 """
 from __future__ import annotations
 

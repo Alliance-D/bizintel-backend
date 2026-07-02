@@ -4,7 +4,7 @@ The script uses a Kigali fallback bounding box when real boundary geometries are
 A 500m hex radius is recommended for the first ML pass. Use 250m later if performance is acceptable.
 
 Example:
-    python scripts/generate_hex_grid_phase27.py --radius-m 500 --truncate
+    python scripts/generate_analysis_grid.py --radius-m 500 --truncate
 """
 from __future__ import annotations
 

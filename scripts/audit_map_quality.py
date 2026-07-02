@@ -1,11 +1,11 @@
-"""Phase 36: audit BizIntel map cells for candidate-location quality.
+"""Audit BizIntel map cells for candidate-location quality.
 
 Creates ml.map_quality_flags so the map can hide obvious non-candidate areas
 such as water bodies and flag areas that need review because supporting signals
 are very sparse.
 
-Run from the project root after Phase 27/35 data exists:
-  python scripts/phase36_audit_map_quality.py
+Run from the project root after the data layer and grid-category features exist:
+  python scripts/audit_map_quality.py
 """
 from __future__ import annotations
 

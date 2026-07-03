@@ -9,7 +9,7 @@ To re-run it:
 
 ```bash
 pip install -r requirements.txt -r ml/notebooks/requirements-notebook.txt
-export DATABASE_URL=postgresql+psycopg://postgres:postgres@127.0.0.1:5432/bizintel
+export DATABASE_URL=postgresql+psycopg://<user>:<password>@127.0.0.1:5432/bizintel
 jupyter nbconvert --to notebook --execute --inplace ml/notebooks/model_development.ipynb
 ```
 

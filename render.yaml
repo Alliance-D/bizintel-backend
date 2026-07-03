@@ -27,26 +27,18 @@ services:
       - key: ALLOWED_ORIGINS
         value: https://bizintel-frontend.onrender.com
 
+  # The frontend is no longer built on Render at all. Its free build
+  # container (512MB) repeatedly got SIGKILLed partway through `next build`
+  # regardless of memory tuning, Node version, or build parallelism, none of
+  # which moved the failure point. The image is now built in GitHub Actions
+  # (.github/workflows/docker-publish.yml in the frontend repo) and pushed to
+  # GHCR; Render just pulls and runs it. Running a built app needs far less
+  # memory than compiling one. This also means NEXT_PUBLIC_API_BASE_URL is
+  # baked in at build time by that workflow, not set here; changing it means
+  # editing the workflow and pushing, not editing this file.
   - type: web
     name: bizintel-frontend
-    runtime: node
-    repo: https://github.com/Alliance-D/bizintel-frontend
+    runtime: image
     plan: free
-    # NODE_OPTIONS is set inline rather than via envVars below: Render does
-    # not reliably apply service-level env vars during the build step for
-    # native runtimes, only at runtime, so a value that only exists in
-    # envVars can silently never reach npm/next build at all. next.config.js
-    # also caps build parallelism (experimental.cpus/workerThreads), which
-    # matters more than the heap cap here: next build's heaviest phase runs
-    # through SWC, a native Rust compiler that isn't V8-heap-bound, so
-    # --max-old-space-size alone does not constrain it, and any parallel
-    # build workers each get their own heap on top of whatever cap is set.
-    buildCommand: NODE_OPTIONS=--max-old-space-size=460 npm ci --no-audit --no-fund && NODE_OPTIONS=--max-old-space-size=460 npm run build
-    startCommand: npm run start
-    envVars:
-      # NEXT_PUBLIC_ vars are baked into the client bundle at build time, so
-      # this has to be a plain value, not a cross-service reference. Render
-      # assigns https://<service-name>.onrender.com by default, matching the
-      # name above; update this if you set a custom domain.
-      - key: NEXT_PUBLIC_API_BASE_URL
-        value: https://bizintel-backend.onrender.com
+    image:
+      url: ghcr.io/alliance-d/bizintel-frontend:latest

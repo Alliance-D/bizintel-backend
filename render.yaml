@@ -32,7 +32,16 @@ services:
     runtime: node
     repo: https://github.com/Alliance-D/bizintel-frontend
     plan: free
-    buildCommand: npm ci --no-audit --no-fund && npm run build
+    # NODE_OPTIONS is set inline rather than via envVars below: Render does
+    # not reliably apply service-level env vars during the build step for
+    # native runtimes, only at runtime, so a value that only exists in
+    # envVars can silently never reach npm/next build at all. next.config.js
+    # also caps build parallelism (experimental.cpus/workerThreads), which
+    # matters more than the heap cap here: next build's heaviest phase runs
+    # through SWC, a native Rust compiler that isn't V8-heap-bound, so
+    # --max-old-space-size alone does not constrain it, and any parallel
+    # build workers each get their own heap on top of whatever cap is set.
+    buildCommand: NODE_OPTIONS=--max-old-space-size=460 npm ci --no-audit --no-fund && NODE_OPTIONS=--max-old-space-size=460 npm run build
     startCommand: npm run start
     envVars:
       # NEXT_PUBLIC_ vars are baked into the client bundle at build time, so
@@ -41,10 +50,3 @@ services:
       # name above; update this if you set a custom domain.
       - key: NEXT_PUBLIC_API_BASE_URL
         value: https://bizintel-backend.onrender.com
-      # Free tier build container is 512MB; without a cap, npm/Next.js can
-      # grow unbounded and get SIGKILLed by the OS, which is what produces
-      # npm's confusing "Exit handler never called!" instead of a clear OOM
-      # error. This caps V8's heap below the hard limit, leaving headroom
-      # for npm/Next.js's own non-heap memory use.
-      - key: NODE_OPTIONS
-        value: --max-old-space-size=460

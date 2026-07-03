@@ -13,7 +13,7 @@ from app.core.config import get_settings
 from app.core.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
 from app.core.rate_limit import limiter
 from app.db.session import engine
-from app.api.routes import health, categories, opportunity, competitive, insights, admin, datasets, features, models, compare, reports, watchlists, auth, field_validation, tiles, notifications, ml_opportunity, experience, workbench, security, readiness, platform, i18n, tutorial, advisor, expansion
+from app.api.routes import health, categories, opportunity, competitive, insights, admin, datasets, features, models, compare, reports, watchlists, auth, field_validation, tiles, notifications, ml_opportunity, workbench, security, readiness, platform, i18n, tutorial, advisor, expansion
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +98,6 @@ app.include_router(field_validation.router, prefix="/api/v1/field-validation", t
 app.include_router(tiles.router, prefix="/api/v1/tiles", tags=["tiles"])
 app.include_router(notifications.router, prefix="/api/v1", tags=["notifications"])
 app.include_router(ml_opportunity.router, prefix="/api/v1/ml-opportunity", tags=["ml-opportunity"])
-app.include_router(experience.router, prefix="/api/v1/experience", tags=["experience"])
 app.include_router(platform.router, prefix="/api/v1/platform", tags=["platform"])
 app.include_router(advisor.router, prefix="/api/v1/platform", tags=["advisor"])
 app.include_router(expansion.router, prefix="/api/v1/platform", tags=["expansion"])

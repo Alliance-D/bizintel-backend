@@ -1,0 +1,43 @@
+databases:
+  - name: bizintel-db
+    databaseName: bizintel
+    plan: starter
+    postgresMajorVersion: "16"
+
+services:
+  - type: web
+    name: bizintel-backend
+    runtime: docker
+    repo: https://github.com/Alliance-D/bizintel-backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: bizintel-db
+          property: connectionString
+      - key: JWT_SECRET
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: https://bizintel-frontend.onrender.com
+
+  - type: web
+    name: bizintel-frontend
+    runtime: node
+    repo: https://github.com/Alliance-D/bizintel-frontend
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    envVars:
+      # NEXT_PUBLIC_ vars are baked into the client bundle at build time, so
+      # this has to be a plain value, not a cross-service reference. Render
+      # assigns https://<service-name>.onrender.com by default, matching the
+      # name above; update this if you set a custom domain.
+      - key: NEXT_PUBLIC_API_BASE_URL
+        value: https://bizintel-backend.onrender.com

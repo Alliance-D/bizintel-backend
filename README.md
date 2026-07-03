@@ -45,6 +45,30 @@ JWT_SECRET=... POSTGRES_PASSWORD=... ALLOWED_ORIGINS=... NEXT_PUBLIC_API_BASE_UR
   docker compose -f docker-compose.prod.yml up --build
 ```
 
+## Deploying to Render
+
+`render.yaml` at the repo root defines a Blueprint: a managed Postgres
+database, this backend as a Docker web service, and the
+[frontend](https://github.com/Alliance-D/bizintel-frontend) as a native
+Node web service (no Docker there, per the frontend's own deploy setup).
+From the Render dashboard, New > Blueprint, point it at this repo, and
+Render picks up `render.yaml` and provisions all three.
+
+Before it works end to end:
+
+- Confirm the Render Postgres plan you pick supports the `postgis`
+  extension (the migrations run `CREATE EXTENSION IF NOT EXISTS postgis`
+  on first boot); if it doesn't, use an external Postgres/PostGIS provider
+  and set `DATABASE_URL` manually instead of `fromDatabase`.
+- Set `JWT_SECRET` and `GEMINI_API_KEY` in the Render dashboard; they're
+  marked `sync: false` in the blueprint so they're not committed.
+- The database still starts empty. See "Populating real data" below,
+  the import scripts need `DATABASE_URL` pointed at the Render database
+  and access to the source datasets, which aren't in this repo.
+- `ALLOWED_ORIGINS` and `NEXT_PUBLIC_API_BASE_URL` in `render.yaml` assume
+  the default service names (`bizintel-backend`, `bizintel-frontend`);
+  update both if you rename either service or attach a custom domain.
+
 ## Populating real data
 
 `docker compose up` gives you a working API with an empty database — no

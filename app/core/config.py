@@ -1,5 +1,6 @@
 import logging
 from functools import lru_cache
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,22 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+
+    @field_validator("database_url")
+    @classmethod
+    def _force_psycopg3_driver(cls, value: str) -> str:
+        # Managed Postgres providers (Render among them) hand back a plain
+        # postgres:// or postgresql:// URL. SQLAlchemy maps that bare scheme
+        # to the legacy psycopg2 driver regardless of what's installed, and
+        # this project only ships psycopg (v3), so left alone it fails with
+        # "No module named 'psycopg2'" at connection time, not at import
+        # time, which is why it only shows up once something tries to
+        # actually connect. Force the +psycopg dialect explicitly.
+        if value.startswith("postgres://"):
+            value = "postgresql://" + value[len("postgres://"):]
+        if value.startswith("postgresql://"):
+            value = "postgresql+psycopg://" + value[len("postgresql://"):]
+        return value
 
     @property
     def origins(self) -> list[str]:

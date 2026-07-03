@@ -54,6 +54,21 @@ Node web service (no Docker there, per the frontend's own deploy setup).
 From the Render dashboard, New > Blueprint, point it at this repo, and
 Render picks up `render.yaml` and provisions all three.
 
+All three are set to `plan: free`, no payment details required to deploy.
+Free tier tradeoffs worth knowing before you rely on it:
+
+- Free web services spin down after 15 minutes with no traffic and take
+  roughly 30 to 60 seconds to wake back up on the next request, so the
+  first request after a quiet period will be slow. Not a bug.
+- Free Postgres databases on Render expire 30 days after creation and get
+  deleted unless you upgrade the database to a paid plan before then. Real
+  data imported for this project (see "Populating real data" below) would
+  be lost if the database expires, so treat the free database as
+  disposable until you're ready to commit to a paid plan.
+- Switching to a paid plan later is a one line change per service, edit
+  `plan: free` to `plan: starter` (or another paid tier) for whichever of
+  the three needs it, and redeploy the blueprint. No other changes needed.
+
 Before it works end to end:
 
 - Confirm the Render Postgres plan you pick supports the `postgis`

@@ -1,7 +1,7 @@
 databases:
   - name: bizintel-db
     databaseName: bizintel
-    plan: starter
+    plan: free
     postgresMajorVersion: "16"
 
 services:
@@ -11,7 +11,7 @@ services:
     repo: https://github.com/Alliance-D/bizintel-backend
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    plan: starter
+    plan: free
     healthCheckPath: /api/v1/health
     envVars:
       - key: APP_ENV
@@ -31,7 +31,7 @@ services:
     name: bizintel-frontend
     runtime: node
     repo: https://github.com/Alliance-D/bizintel-frontend
-    plan: starter
+    plan: free
     buildCommand: npm install && npm run build
     startCommand: npm run start
     envVars:

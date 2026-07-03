@@ -25,8 +25,10 @@ openpyxl==3.1.5
 polars==1.17.1
 pyarrow==18.1.0
 
-# CatBoost is intentionally not pinned here because it can fail on Python 3.13.
-# Add it manually on Python 3.11 if you want to include CatBoost in the comparison suite.
+# CatBoost is intentionally not pinned here because it can fail to install on
+# Python 3.13 (this project's target version, see .python-version and
+# Dockerfile). Install it in a separate environment on an older Python if you
+# want to include it in the notebook's model comparison.
 
 reportlab==4.2.5
 email-validator==2.2.0

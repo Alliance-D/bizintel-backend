@@ -27,31 +27,25 @@ services:
       - key: ALLOWED_ORIGINS
         value: https://bizintel-frontend.onrender.com
 
-  # Back to building directly on Render (runtime: docker), matching the
-  # backend. This was originally moved to a pre-built image from GitHub
-  # Actions because of what looked like a memory-related build failure, but
-  # the real cause turned out to be a corrupted package-lock.json (fixed),
-  # not memory. Once that was fixed, runtime: image started returning a
-  # persistent "Not Found" from Render's edge for every request, even right
-  # after a full delete-and-recreate of the service, with the container
-  # itself starting cleanly every time and Render's own dashboard reporting
-  # it live, meaning traffic was never reaching the origin at all. That
-  # points at a platform-side routing issue specific to runtime: image on
-  # this account, not anything fixable from this repo. runtime: docker is
-  # Render's more established path and has had no such issues for the
-  # backend, so the frontend uses it too now that the actual build blocker
-  # is gone.
+  # Testing runtime: node (no Docker at all) to isolate whether the 502s
+  # are Docker-specific to this account/service, or something else
+  # entirely. The one thing never actually retested since the real build
+  # blocker (a corrupted package-lock.json, unrelated to Docker) was fixed:
+  # every runtime: node attempt before now happened while that lockfile bug
+  # was still live, so it never got a fair test. runtime: image (a
+  # pre-built GHCR image) and runtime: docker (building here) have both
+  # produced a container that starts cleanly every time, with Render's
+  # dashboard reporting it live, yet 502s or Not Found on every single
+  # request from outside. If this also fails the same way, it rules out
+  # Docker as the variable entirely.
   - type: web
     name: bizintel-frontend
-    runtime: docker
+    runtime: node
     repo: https://github.com/Alliance-D/bizintel-frontend
-    dockerfilePath: ./Dockerfile.production
-    dockerContext: .
     plan: free
+    buildCommand: npm ci --no-audit --no-fund && npm run build
+    startCommand: npm run start
     healthCheckPath: /
     envVars:
-      # Render passes service env vars through as Docker build args
-      # automatically for runtime: docker services, which is what
-      # Dockerfile.production's ARG NEXT_PUBLIC_API_BASE_URL picks up.
       - key: NEXT_PUBLIC_API_BASE_URL
         value: https://bizintel-backend.onrender.com

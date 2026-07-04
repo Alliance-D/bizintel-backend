@@ -48,6 +48,7 @@ services:
     dockerfilePath: ./Dockerfile.production
     dockerContext: .
     plan: free
+    healthCheckPath: /
     envVars:
       # Render passes service env vars through as Docker build args
       # automatically for runtime: docker services, which is what

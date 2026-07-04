@@ -48,4 +48,4 @@ services:
     healthCheckPath: /
     envVars:
       - key: NEXT_PUBLIC_API_BASE_URL
-        value: https://bizintel-backend.onrender.com
+        value: https://bizintel-backend-atgv.onrender.com

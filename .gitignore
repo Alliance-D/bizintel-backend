@@ -26,9 +26,14 @@ venv/
 *.dump
 
 # ML artifacts (regenerable via training pipeline; large binaries)
-ml/artifacts/
+ml/artifacts/*
 *.joblib
 *.pkl
+
+# The active production model is small enough to ship as a real repo asset
+# rather than something the deploy environment has to regenerate.
+!ml/artifacts/lightgbm_opportunity_model.joblib
+!ml/artifacts/model_comparison_20260702T190344Z.json
 
 # Notebook checkpoints
 .ipynb_checkpoints/

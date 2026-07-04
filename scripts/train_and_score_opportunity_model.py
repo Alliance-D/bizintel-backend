@@ -301,7 +301,7 @@ def main():
         """), {
             "target": TARGET,
             "algorithm": best_name,
-            "artifact_path": str(artifact_path),
+            "artifact_path": artifact_path.as_posix(),
             "metrics": json.dumps({"best": best, "all_candidates": results, "split_strategy": f"group_shuffle_split_by_{SPLIT_GROUP_COLUMN}", "shap_top_features": shap_summary}),
             "features": ALL_FEATURES,
             "active": bool(args.activate),

@@ -1,0 +1,156 @@
+{
+  "target": "opportunity_gap_score",
+  "split_strategy": "group_shuffle_split_by_sector",
+  "training_rows": 4105,
+  "training_sectors": 27,
+  "validation_rows": 1550,
+  "validation_sectors": 8,
+  "best_model": "lightgbm",
+  "results": [
+    {
+      "algorithm": "random_forest",
+      "metrics": {
+        "mae": 1.3878,
+        "rmse": 2.1054,
+        "r2": 0.9791
+      },
+      "status": "ok"
+    },
+    {
+      "algorithm": "extra_trees",
+      "metrics": {
+        "mae": 0.8157,
+        "rmse": 1.271,
+        "r2": 0.9924
+      },
+      "status": "ok"
+    },
+    {
+      "algorithm": "gradient_boosting",
+      "metrics": {
+        "mae": 1.1003,
+        "rmse": 1.6366,
+        "r2": 0.9874
+      },
+      "status": "ok"
+    },
+    {
+      "algorithm": "hist_gradient_boosting",
+      "metrics": {
+        "mae": 1.0542,
+        "rmse": 1.5101,
+        "r2": 0.9892
+      },
+      "status": "ok"
+    },
+    {
+      "algorithm": "k_nearest_neighbors",
+      "metrics": {
+        "mae": 2.0084,
+        "rmse": 2.8133,
+        "r2": 0.9627
+      },
+      "status": "ok"
+    },
+    {
+      "algorithm": "lightgbm",
+      "metrics": {
+        "mae": 0.7637,
+        "rmse": 1.1578,
+        "r2": 0.9937
+      },
+      "status": "ok"
+    },
+    {
+      "algorithm": "xgboost",
+      "metrics": {
+        "mae": 1.04,
+        "rmse": 1.4792,
+        "r2": 0.9897
+      },
+      "status": "ok"
+    }
+  ],
+  "shap_top_features": [
+    {
+      "feature": "demand_score",
+      "mean_abs_shap": 4.115023491483548
+    },
+    {
+      "feature": "population_density_500m",
+      "mean_abs_shap": 3.9569522406296915
+    },
+    {
+      "feature": "commercial_activity_score",
+      "mean_abs_shap": 2.4804229385246015
+    },
+    {
+      "feature": "nearest_bus_stop_m",
+      "mean_abs_shap": 2.145940929612842
+    },
+    {
+      "feature": "accessibility_score",
+      "mean_abs_shap": 2.0673731706892307
+    },
+    {
+      "feature": "establishment_category_count_area",
+      "mean_abs_shap": 0.6813458080606204
+    },
+    {
+      "feature": "income_proxy",
+      "mean_abs_shap": 0.362927703681802
+    },
+    {
+      "feature": "demand_generator_count_1000m",
+      "mean_abs_shap": 0.3628006665839195
+    },
+    {
+      "feature": "business_category_cafe",
+      "mean_abs_shap": 0.272662110387445
+    },
+    {
+      "feature": "sector_population",
+      "mean_abs_shap": 0.19279410650839968
+    },
+    {
+      "feature": "bus_stop_count_500m",
+      "mean_abs_shap": 0.1708773245285073
+    },
+    {
+      "feature": "business_category_grocery",
+      "mean_abs_shap": 0.1542722518533564
+    },
+    {
+      "feature": "competition_pressure",
+      "mean_abs_shap": 0.13306902471292725
+    },
+    {
+      "feature": "business_category_restaurant",
+      "mean_abs_shap": 0.11152138086793852
+    },
+    {
+      "feature": "population_density_1000m",
+      "mean_abs_shap": 0.05816491943867381
+    },
+    {
+      "feature": "district_Nyarugenge",
+      "mean_abs_shap": 0.05740595931737399
+    },
+    {
+      "feature": "market_distance_m",
+      "mean_abs_shap": 0.056520279898901654
+    },
+    {
+      "feature": "business_category_salon",
+      "mean_abs_shap": 0.04648760494950937
+    },
+    {
+      "feature": "nearest_competitor_m",
+      "mean_abs_shap": 0.039034437184558464
+    },
+    {
+      "feature": "employment_rate",
+      "mean_abs_shap": 0.03774888807923749
+    }
+  ]
+}

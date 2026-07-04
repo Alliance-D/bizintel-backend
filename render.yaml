@@ -27,18 +27,30 @@ services:
       - key: ALLOWED_ORIGINS
         value: https://bizintel-frontend.onrender.com
 
-  # The frontend is no longer built on Render at all. Its free build
-  # container (512MB) repeatedly got SIGKILLed partway through `next build`
-  # regardless of memory tuning, Node version, or build parallelism, none of
-  # which moved the failure point. The image is now built in GitHub Actions
-  # (.github/workflows/docker-publish.yml in the frontend repo) and pushed to
-  # GHCR; Render just pulls and runs it. Running a built app needs far less
-  # memory than compiling one. This also means NEXT_PUBLIC_API_BASE_URL is
-  # baked in at build time by that workflow, not set here; changing it means
-  # editing the workflow and pushing, not editing this file.
+  # Back to building directly on Render (runtime: docker), matching the
+  # backend. This was originally moved to a pre-built image from GitHub
+  # Actions because of what looked like a memory-related build failure, but
+  # the real cause turned out to be a corrupted package-lock.json (fixed),
+  # not memory. Once that was fixed, runtime: image started returning a
+  # persistent "Not Found" from Render's edge for every request, even right
+  # after a full delete-and-recreate of the service, with the container
+  # itself starting cleanly every time and Render's own dashboard reporting
+  # it live, meaning traffic was never reaching the origin at all. That
+  # points at a platform-side routing issue specific to runtime: image on
+  # this account, not anything fixable from this repo. runtime: docker is
+  # Render's more established path and has had no such issues for the
+  # backend, so the frontend uses it too now that the actual build blocker
+  # is gone.
   - type: web
     name: bizintel-frontend
-    runtime: image
+    runtime: docker
+    repo: https://github.com/Alliance-D/bizintel-frontend
+    dockerfilePath: ./Dockerfile.production
+    dockerContext: .
     plan: free
-    image:
-      url: ghcr.io/alliance-d/bizintel-frontend:latest
+    envVars:
+      # Render passes service env vars through as Docker build args
+      # automatically for runtime: docker services, which is what
+      # Dockerfile.production's ARG NEXT_PUBLIC_API_BASE_URL picks up.
+      - key: NEXT_PUBLIC_API_BASE_URL
+        value: https://bizintel-backend.onrender.com

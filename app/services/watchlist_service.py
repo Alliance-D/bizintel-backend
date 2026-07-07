@@ -4,8 +4,8 @@ from sqlalchemy.orm import Session
 
 def create_saved_location(db: Session, payload: dict) -> dict:
     row = db.execute(text("""
-        INSERT INTO app.saved_locations (label, name, business_category, latitude, longitude, geom, notes, updated_at)
-        VALUES (:label, :label, :category, :lat, :lon, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), :notes, now())
+        INSERT INTO app.saved_locations (label, business_category, latitude, longitude, geom, notes, updated_at)
+        VALUES (:label, :category, :lat, :lon, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), :notes, now())
         RETURNING id, label, business_category, latitude, longitude, notes, created_at, updated_at
     """), {
         'label': payload['label'],
@@ -44,7 +44,7 @@ def list_alerts(db: Session, limit: int = 30) -> list[dict]:
 
 def delete_saved_location(db: Session, location_id: int) -> dict | None:
     existing = db.execute(text("""
-        SELECT id, label, name, business_category, latitude, longitude
+        SELECT id, label, business_category, latitude, longitude
         FROM app.saved_locations
         WHERE id = :id
     """), {'id': location_id}).mappings().first()

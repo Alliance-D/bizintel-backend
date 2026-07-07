@@ -6,7 +6,7 @@ from sqlalchemy import text
 
 from app.db.session import get_db
 from app.core.categories import normalise_category
-from app.services.ml_opportunity_service import assess_location_ml
+from app.services.ml_opportunity_service import assess_location_ml, _localize_opportunity_type
 from app.services.opportunity_service import list_opportunity_cells, summarize_opportunity_map
 
 router = APIRouter()
@@ -39,6 +39,7 @@ def opportunity_geojson(
     limit: int = Query(2500, ge=1, le=10000),
     include_review: bool = Query(True),
     include_excluded: bool = Query(False),
+    locale: str | None = Query(None),
     db: Session = Depends(get_db),
 ) -> dict:
     """Return map cells for the public opportunity map.
@@ -93,12 +94,18 @@ def opportunity_geojson(
             LIMIT :limit
         """), {'category': category, 'limit': limit}).mappings().all()
         if rows:
+            def _feature_properties(r):
+                props = {k: (dict(v) if hasattr(v, 'keys') else v) for k, v in dict(r).items() if k != 'geometry'}
+                if props.get('opportunity_type'):
+                    props['opportunity_type'] = _localize_opportunity_type(props['opportunity_type'], locale)
+                return props
+
             return {
                 'type': 'FeatureCollection',
                 'features': [{
                     'type': 'Feature',
                     'geometry': json.loads(r['geometry']),
-                    'properties': {k: (dict(v) if hasattr(v, 'keys') else v) for k, v in dict(r).items() if k != 'geometry'},
+                    'properties': _feature_properties(r),
                 } for r in rows],
                 'metadata': {
                     'category': category,
@@ -162,6 +169,7 @@ def assess(payload: dict, db: Session = Depends(get_db)) -> dict:
         longitude=float(payload.get('longitude')),
         business_category=normalise_category(payload.get('business_category') or payload.get('category') or 'pharmacy'),
         radius_meters=int(payload.get('radius_meters') or 500),
+        locale=payload.get('locale'),
     )
 
 

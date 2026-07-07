@@ -21,6 +21,7 @@ class CompetitiveAnalysisRequest(BaseModel):
 class CompareLocationsRequest(BaseModel):
     business_category: str = 'salon'
     locations: list[LocationPoint] = Field(..., min_length=2, max_length=8)
+    locale: str | None = None
 
 class SavedLocationCreate(BaseModel):
     label: str

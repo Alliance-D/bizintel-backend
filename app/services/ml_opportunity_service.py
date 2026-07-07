@@ -36,30 +36,31 @@ def list_category_profiles(db: Session) -> dict[str, Any]:
     return {"categories": [], "source": "database_unavailable"}
 
 
-def assess_location_ml(db: Session, latitude: float, longitude: float, business_category: str, radius_meters: int = 500) -> dict[str, Any]:
+def assess_location_ml(db: Session, latitude: float, longitude: float, business_category: str, radius_meters: int = 500, locale: str | None = None) -> dict[str, Any]:
     try:
         prediction = db.execute(text("SELECT * FROM ml.get_ml_prediction_near(:lon, :lat, :category)"), {
             "lon": longitude, "lat": latitude, "category": business_category
         }).mappings().first()
         if prediction:
             competitors = _competitors(db, longitude, latitude, business_category, radius_meters)
-            return _prediction_payload(dict(prediction), latitude, longitude, business_category, competitors)
+            return _prediction_payload(dict(prediction), latitude, longitude, business_category, competitors, locale=locale)
     except Exception:
         db.rollback()
 
+    rw = _is_kinyarwanda(locale)
     return {
         "status": "unavailable",
         "source": "no_ml_prediction_cache",
         "business_category": business_category,
         "latitude": latitude,
         "longitude": longitude,
-        "overall": {"opportunity_score": 0, "confidence_score": 0, "opportunity_type": "Prediction unavailable", "opportunity_rank": None},
+        "overall": {"opportunity_score": 0, "confidence_score": 0, "opportunity_type": _localize_opportunity_type("Prediction unavailable", locale), "opportunity_rank": None},
         "factors": {"demand_score": 0, "accessibility_score": 0, "commercial_activity_score": 0, "competition_pressure": 0},
         "competition": {"within_300m": 0, "within_500m": 0, "within_1000m": 0},
         "nearby_context": [],
-        "explanation": {"summary": "No prediction was found for this location and category."},
-        "risk_notes": ["Live prediction data is unavailable."],
-        "recommendation": "Refresh the map or try another nearby location.",
+        "explanation": {"summary": "Nta iteganya ryabonetse kuri aha hantu n'ubu bwoko." if rw else "No prediction was found for this location and category."},
+        "risk_notes": ["Amakuru y'iteganya ry'ubu ntaboneka." if rw else "Live prediction data is unavailable."],
+        "recommendation": "Ongera ufungure ikarita cyangwa ugerageze ahandi hantu hafi." if rw else "Refresh the map or try another nearby location.",
     }
 
 
@@ -80,13 +81,14 @@ def _competitors(db: Session, longitude: float, latitude: float, category: str, 
     return {"within_300m": 0, "within_500m": 0, "within_1000m": 0}
 
 
-def _prediction_payload(prediction: dict[str, Any], latitude: float, longitude: float, category: str, competitors: dict[str, int], source: str = "ml_prediction_cache") -> dict[str, Any]:
+def _prediction_payload(prediction: dict[str, Any], latitude: float, longitude: float, category: str, competitors: dict[str, int], source: str = "ml_prediction_cache", locale: str | None = None) -> dict[str, Any]:
     score = round(float(prediction.get("opportunity_score") or 0), 2)
     confidence = round(float(prediction.get("confidence_score") or 0), 2)
     competition = round(float(prediction.get("competition_pressure") or 0), 2)
     access = round(float(prediction.get("accessibility_score") or prediction.get("access_score") or 0), 2)
     commercial = round(float(prediction.get("commercial_activity_score") or 0), 2)
     demand = round(float(prediction.get("demand_score") or 0), 2)
+    opportunity_type = prediction.get("opportunity_type") or "Worth comparing"
     return {
         "status": "ready",
         "source": source,
@@ -101,7 +103,7 @@ def _prediction_payload(prediction: dict[str, Any], latitude: float, longitude: 
         "overall": {
             "opportunity_score": score,
             "opportunity_rank": prediction.get("opportunity_rank"),
-            "opportunity_type": prediction.get("opportunity_type", "Worth comparing"),
+            "opportunity_type": _localize_opportunity_type(opportunity_type, locale),
             "confidence_score": confidence,
         },
         "factors": {
@@ -113,8 +115,8 @@ def _prediction_payload(prediction: dict[str, Any], latitude: float, longitude: 
         "competition": competitors,
         "nearby_context": [],
         "explanation": prediction.get("explanation") or {},
-        "risk_notes": _risk_notes(score, competition, confidence, access),
-        "recommendation": _recommendation(score, confidence, competition),
+        "risk_notes": _risk_notes(score, competition, confidence, access, locale),
+        "recommendation": _recommendation(score, confidence, competition, locale),
     }
 
 
@@ -160,26 +162,49 @@ def get_ml_engine_status(db: Session) -> dict[str, Any]:
         }
 
 
-def _risk_notes(score: float, competition: float, confidence: float, access: float) -> list[str]:
+def _is_kinyarwanda(locale: str | None) -> bool:
+    return (locale or "").lower().startswith(("rw", "kin"))
+
+
+_OPPORTUNITY_TYPE_RW = {
+    "Strong opportunity": "Amahirwe akomeye",
+    "Underserved opportunity": "Amahirwe ahantu hatarigera hagerwaho bihagije",
+    "High demand and high competition": "Ubukenewe bwinshi n'ipiganwa rinini",
+    "Promising but needs validation": "Bifite icyizere ariko bikeneye kwemezwa",
+    "Low priority": "Ntibisabwa cyane",
+    "Worth comparing": "Bikwiye kugereranywa",
+    "Prediction unavailable": "Iteganya ntiriboneka",
+}
+
+
+def _localize_opportunity_type(opportunity_type: str, locale: str | None) -> str:
+    if not _is_kinyarwanda(locale):
+        return opportunity_type
+    return _OPPORTUNITY_TYPE_RW.get(opportunity_type, opportunity_type)
+
+
+def _risk_notes(score: float, competition: float, confidence: float, access: float, locale: str | None = None) -> list[str]:
+    rw = _is_kinyarwanda(locale)
     notes = []
     if competition >= 70:
-        notes.append("Competition pressure is high near this location.")
+        notes.append("Igitutu cy'ipiganwa ni kinini hafi y'aha hantu." if rw else "Competition pressure is high near this location.")
     if confidence < 55:
-        notes.append("Data confidence is moderate; validate informal competitors and customer flow.")
+        notes.append("Icyizere cy'amakuru ni hagati; emeza abandi bacuruza batemewe n'uko abakiriya banyura." if rw else "Data confidence is moderate; validate informal competitors and customer flow.")
     if access < 45:
-        notes.append("Accessibility is weaker than stronger opportunity zones.")
+        notes.append("Kugerwaho ni intege nke ugereranyije n'ahandi hantu hafite amahirwe menshi." if rw else "Accessibility is weaker than stronger opportunity zones.")
     if score < 50:
-        notes.append("The area should be compared with stronger nearby alternatives before committing.")
+        notes.append("Aha hantu hagomba kugereranywa n'andi mahitamo akomeye ari hafi mbere yo kwiyemeza." if rw else "The area should be compared with stronger nearby alternatives before committing.")
     return notes
 
 
-def _recommendation(score: float, confidence: float, competition_pressure: float) -> str:
+def _recommendation(score: float, confidence: float, competition_pressure: float, locale: str | None = None) -> str:
+    rw = _is_kinyarwanda(locale)
     if confidence < 45:
-        return "Use this as an exploratory signal and validate the area physically before making decisions."
+        return "Koresha iki nk'ikimenyetso cyo gushakisha hanyuma wemeze aha hantu ku rubuga mbere yo gufata icyemezo." if rw else "Use this as an exploratory signal and validate the area physically before making decisions."
     if score >= 80 and competition_pressure < 60:
-        return "Strong candidate area. Prioritize field checks for rent, frontage and informal competitors."
+        return "Agace gakomeye. Tangira isuzuma ku rubuga ku kijyanye n'ikodesha, imiterere y'imbere n'abandi bacuruza batemewe." if rw else "Strong candidate area. Prioritize field checks for rent, frontage and informal competitors."
     if score >= 65 and competition_pressure >= 70:
-        return "Promising but competitive. Consider differentiation rather than a generic offer."
+        return "Bifite icyizere ariko hari ipiganwa. Tekereza ku kwitandukanya aho kugira icyo utanga nk'ibisanzwe." if rw else "Promising but competitive. Consider differentiation rather than a generic offer."
     if score >= 50:
-        return "Moderate opportunity. Compare this location with nearby alternatives before committing."
-    return "Weak opportunity under current model signals. Look for stronger demand, access or commercial activity nearby."
+        return "Amahirwe agereranije. Gereranya aha hantu n'andi mahitamo ari hafi mbere yo kwiyemeza." if rw else "Moderate opportunity. Compare this location with nearby alternatives before committing."
+    return "Amahirwe make ku bimenyetso by'icyitegererezo ubu. Shakisha ubukenewe, kugerwaho cyangwa ibikorwa by'ubucuruzi bikomeye biri hafi." if rw else "Weak opportunity under current model signals. Look for stronger demand, access or commercial activity nearby."

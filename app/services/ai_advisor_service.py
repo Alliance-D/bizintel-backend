@@ -41,6 +41,11 @@ vs. compete on price, given the competition level), (3) one or two practical nex
 to this category and this data. Keep it to 4-6 short sentences, plain language, no headers or \
 markdown, no bullet lists - written prose."""
 
+SYSTEM_INSTRUCTION_RW = SYSTEM_INSTRUCTION + """
+
+Write your entire response in Kinyarwanda, natural and clear for a Kigali small business owner, \
+not a literal machine translation. Do not include any English in the response."""
+
 
 def _client() -> genai.Client | None:
     settings = get_settings()
@@ -53,7 +58,7 @@ def is_available() -> bool:
     return _client() is not None
 
 
-def generate_advice(assessment: dict[str, Any]) -> dict[str, Any]:
+def generate_advice(assessment: dict[str, Any], locale: str | None = None) -> dict[str, Any]:
     """assessment is the payload returned by ml_opportunity_service.assess_location_ml()."""
     client = _client()
     if client is None:
@@ -63,6 +68,8 @@ def generate_advice(assessment: dict[str, Any]) -> dict[str, Any]:
                        "Set GEMINI_API_KEY to enable it.",
             "advice": None,
         }
+
+    system_instruction = SYSTEM_INSTRUCTION_RW if (locale or "").lower().startswith(("rw", "kin")) else SYSTEM_INSTRUCTION
 
     overall = assessment.get("overall", {})
     factors = assessment.get("factors", {})
@@ -89,7 +96,7 @@ def generate_advice(assessment: dict[str, Any]) -> dict[str, Any]:
                 model=MODEL_NAME,
                 contents=prompt,
                 config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_INSTRUCTION,
+                    system_instruction=system_instruction,
                     temperature=0.4,
                     max_output_tokens=400,
                 ),

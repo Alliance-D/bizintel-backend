@@ -24,7 +24,7 @@ def advisor(request: Request, payload: dict, db: Session = Depends(get_db)) -> d
     latitude = float(payload.get('latitude'))
     longitude = float(payload.get('longitude'))
     assessment = assess_location_ml(db, latitude=latitude, longitude=longitude, business_category=category)
-    result = generate_advice(assessment)
+    result = generate_advice(assessment, locale=payload.get('locale'))
     return {
         "business_category": category,
         "latitude": latitude,

@@ -106,6 +106,12 @@ def main() -> int:
         """))
         conn.execute(text("TRUNCATE ml.map_quality_flags"))
 
+        # The spatial filter uses the raw p.way column (not ST_MakeValid(p.way))
+        # so the planner can use planet_osm_polygon_way_idx - wrapping an
+        # indexed column in a function prevents index use and turns this into
+        # a full scan against 1.4M polygons per grid cell. ST_MakeValid is
+        # still applied afterwards, only to the much smaller matched set, for
+        # the actual area/point computation that needs a valid geometry.
         water_cte = """
         water AS (
           SELECT g.grid_id,
@@ -120,18 +126,29 @@ def main() -> int:
           FROM geo.analysis_grid g
           LEFT JOIN public.planet_osm_polygon p
             ON {water_pred}
-           AND ST_Intersects(g.geom, ST_MakeValid(p.way))
+           AND ST_Intersects(g.geom, p.way)
           GROUP BY g.grid_id
         ),
         """.format(water_pred=water_pred) if polygon_exists and water_parts else "water AS (SELECT grid_id, 0::double precision AS water_ratio FROM geo.analysis_grid),"
 
+        # ST_DWithin(geography, geography, meters) against planet_osm_polygon/line
+        # (1.4M / 203K rows) doesn't get planet_osm_*_way_idx pushed down here -
+        # both sides being cast to geography defeats the geometry GIST index,
+        # turning this into a sequential scan per grid cell (confirmed via
+        # EXPLAIN: ~1.6 billion row comparisons for buildings alone). Adding a
+        # loose geometry-space ST_DWithin first (0.005 degrees, ~550m at this
+        # latitude - comfortably wider than the real 300m radius) gives the
+        # planner an index-eligible pre-filter; the geography ST_DWithin after
+        # it still does the precise 300m check. This took building counts from
+        # not finishing in 60s to ~11s.
         building_cte = """
         buildings AS (
           SELECT g.grid_id, COUNT(p.*)::INTEGER AS building_count_300
           FROM geo.analysis_grid g
           LEFT JOIN public.planet_osm_polygon p
             ON {building_pred}
-           AND ST_DWithin(g.centroid::geography, ST_PointOnSurface(ST_MakeValid(p.way))::geography, 300)
+           AND ST_DWithin(g.centroid, p.way, 0.005)
+           AND ST_DWithin(g.centroid::geography, p.way::geography, 300)
           GROUP BY g.grid_id
         ),
         """.format(building_pred=building_pred) if polygon_exists and building_parts else "buildings AS (SELECT grid_id, 0::integer AS building_count_300 FROM geo.analysis_grid),"
@@ -142,6 +159,7 @@ def main() -> int:
           FROM geo.analysis_grid g
           LEFT JOIN public.planet_osm_line l
             ON {road_pred}
+           AND ST_DWithin(g.centroid, l.way, 0.005)
            AND ST_DWithin(g.centroid::geography, l.way::geography, 300)
           GROUP BY g.grid_id
         ),
@@ -186,7 +204,7 @@ def main() -> int:
                  ELSE 'candidate'
                END AS candidate_status,
                (
-                 SELECT jsonb_agg(label)
+                 SELECT COALESCE(jsonb_agg(label), '[]'::jsonb)
                  FROM (
                    SELECT 'water_overlap' AS label WHERE water_ratio >= 0.20
                    UNION ALL SELECT 'no_nearby_pois' WHERE poi_count_500 = 0

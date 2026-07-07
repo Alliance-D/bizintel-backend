@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from sqlalchemy.orm import Session
 
@@ -12,8 +12,19 @@ from app.services.admin_jobs_service import (
     trigger_grid_rebuild,
     trigger_retrain,
 )
+from app.services.audit_service import write_audit_log
 
 router = APIRouter()
+
+
+def _audit(request: Request, db: Session, user: dict, action: str, entity_type: str | None = None, entity_id: str | None = None, metadata: dict | None = None) -> None:
+    write_audit_log(
+        db, action=action, user=user, entity_type=entity_type, entity_id=entity_id, metadata=metadata,
+        request_id=getattr(request.state, 'request_id', None),
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get('user-agent'),
+    )
+    db.commit()
 
 
 @router.get('/status')
@@ -48,24 +59,27 @@ def admin_job_status(user: dict = Depends(require_min_role('admin'))) -> dict:
 
 
 @router.post('/jobs/retrain')
-def admin_trigger_retrain(activate: bool = True, user: dict = Depends(require_min_role('admin'))) -> dict:
+def admin_trigger_retrain(request: Request, activate: bool = True, db: Session = Depends(get_db), user: dict = Depends(require_min_role('admin'))) -> dict:
     result = trigger_retrain(activate=activate)
     if not result["started"]:
         raise HTTPException(status_code=409, detail=result["message"])
+    _audit(request, db, user, action='model.retrain_triggered', metadata={'activate': activate})
     return result
 
 
 @router.post('/jobs/rebuild-features')
-def admin_trigger_grid_rebuild(user: dict = Depends(require_min_role('admin'))) -> dict:
+def admin_trigger_grid_rebuild(request: Request, db: Session = Depends(get_db), user: dict = Depends(require_min_role('admin'))) -> dict:
     result = trigger_grid_rebuild()
     if not result["started"]:
         raise HTTPException(status_code=409, detail=result["message"])
+    _audit(request, db, user, action='features.rebuild_triggered')
     return result
 
 
 @router.post('/models/{model_version_id}/activate')
-def admin_activate_model(model_version_id: int, db: Session = Depends(get_db), user: dict = Depends(require_min_role('super_admin'))) -> dict:
+def admin_activate_model(model_version_id: int, request: Request, db: Session = Depends(get_db), user: dict = Depends(require_min_role('super_admin'))) -> dict:
     result = activate_model_version(db, model_version_id)
     if not result["activated"]:
         raise HTTPException(status_code=409, detail=result["message"])
+    _audit(request, db, user, action='model.activated', entity_type='model_version', entity_id=str(model_version_id))
     return result

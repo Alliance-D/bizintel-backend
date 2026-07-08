@@ -46,6 +46,18 @@ SYSTEM_INSTRUCTION_RW = SYSTEM_INSTRUCTION + """
 Write your entire response in Kinyarwanda, natural and clear for a Kigali small business owner, \
 not a literal machine translation. Do not include any English in the response."""
 
+FOLLOW_UP_INSTRUCTION = """
+
+The conversation may continue with follow-up questions about this same location. Keep answering \
+grounded ONLY in the numbers already given to you above and anything you've already said in this \
+conversation - do not invent new facts (rent, named competitors, exact foot traffic, and so on) \
+to answer a question just because it was asked. If a follow-up asks about something not covered \
+by the data (e.g. actual rent prices, specific competitor identities), say plainly that it isn't \
+something this data covers and suggest it as a field-check item instead of guessing. Keep replies \
+short - a few sentences, plain prose, no headers or bullet lists."""
+
+MAX_HISTORY_MESSAGES = 20
+
 
 def _client() -> genai.Client | None:
     settings = get_settings()
@@ -58,8 +70,16 @@ def is_available() -> bool:
     return _client() is not None
 
 
-def generate_advice(assessment: dict[str, Any], locale: str | None = None) -> dict[str, Any]:
-    """assessment is the payload returned by ml_opportunity_service.assess_location_ml()."""
+def generate_advice(assessment: dict[str, Any], locale: str | None = None, history: list[dict[str, str]] | None = None) -> dict[str, Any]:
+    """assessment is the payload returned by ml_opportunity_service.assess_location_ml().
+
+    history, if given, is the prior conversation for this same location as a list
+    of {"role": "user"|"assistant", "text": str}, ending with the newest user
+    question still awaiting a reply. Empty/omitted history produces the original
+    single-shot initial advice. Conversation state lives entirely on the client -
+    it's resent in full on every follow-up rather than persisted server-side,
+    since a location assessment session doesn't need to survive a page reload.
+    """
     client = _client()
     if client is None:
         return {
@@ -69,13 +89,16 @@ def generate_advice(assessment: dict[str, Any], locale: str | None = None) -> di
             "advice": None,
         }
 
+    is_follow_up = bool(history)
     system_instruction = SYSTEM_INSTRUCTION_RW if (locale or "").lower().startswith(("rw", "kin")) else SYSTEM_INSTRUCTION
+    if is_follow_up:
+        system_instruction += FOLLOW_UP_INSTRUCTION
 
     overall = assessment.get("overall", {})
     factors = assessment.get("factors", {})
     competition = assessment.get("competition", {})
 
-    prompt = (
+    context_prompt = (
         f"Business category: {assessment.get('business_category')}\n"
         f"Location: {assessment.get('sector') or 'unknown sector'}, {assessment.get('district') or 'unknown district'}\n"
         f"Opportunity index score (0-100, higher is better): {overall.get('opportunity_score')}\n"
@@ -89,12 +112,19 @@ def generate_advice(assessment: dict[str, Any], locale: str | None = None) -> di
         f"{competition.get('within_300m')}/{competition.get('within_500m')}/{competition.get('within_1000m')}"
     )
 
+    contents: list[Any] = [types.Content(role="user", parts=[types.Part(text=context_prompt)])]
+    for msg in (history or [])[-MAX_HISTORY_MESSAGES:]:
+        role = "model" if msg.get("role") == "assistant" else "user"
+        text = str(msg.get("text") or "").strip()
+        if text:
+            contents.append(types.Content(role=role, parts=[types.Part(text=text)]))
+
     last_error: Exception | None = None
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
             response = client.models.generate_content(
                 model=MODEL_NAME,
-                contents=prompt,
+                contents=contents,
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
                     temperature=0.4,

@@ -33,6 +33,18 @@ def _clean_history(raw: object) -> list[dict[str, str]]:
     return cleaned
 
 
+def _clean_user_context(raw: object) -> dict[str, str] | None:
+    """Defensive parsing for optional user-stated context - never fed to the
+    model, only ever used to personalize the advisor's narrative tone."""
+    if not isinstance(raw, dict):
+        return None
+    budget = str(raw.get('budget') or '')[:300].strip()
+    notes = str(raw.get('notes') or '')[:500].strip()
+    if not budget and not notes:
+        return None
+    return {"budget": budget, "notes": notes}
+
+
 @router.post('/advisor')
 @limiter.limit('30/minute')
 def advisor(request: Request, payload: dict, db: Session = Depends(get_db)) -> dict:
@@ -40,8 +52,9 @@ def advisor(request: Request, payload: dict, db: Session = Depends(get_db)) -> d
     latitude = float(payload.get('latitude'))
     longitude = float(payload.get('longitude'))
     history = _clean_history(payload.get('messages'))
+    user_context = _clean_user_context(payload.get('user_context'))
     assessment = assess_location_ml(db, latitude=latitude, longitude=longitude, business_category=category)
-    result = generate_advice(assessment, locale=payload.get('locale'), history=history)
+    result = generate_advice(assessment, locale=payload.get('locale'), history=history, user_context=user_context)
     return {
         "business_category": category,
         "latitude": latitude,

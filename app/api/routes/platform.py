@@ -6,8 +6,9 @@ from sqlalchemy import text
 
 from app.db.session import get_db
 from app.core.categories import normalise_category
-from app.services.ml_opportunity_service import assess_location_ml, _localize_opportunity_type
+from app.services.ml_opportunity_service import assess_location_ml, _localize_opportunity_type, list_nearby_competitors
 from app.services.opportunity_service import list_opportunity_cells, summarize_opportunity_map
+from app.services.geography_service import get_village_boundary
 
 router = APIRouter()
 
@@ -24,12 +25,15 @@ def _map_quality_available(db: Session) -> bool:
 def opportunity_cells(
     category: str = Query('pharmacy'),
     district: str | None = None,
+    sector: str | None = None,
+    cell: str | None = None,
     limit: int = Query(60, ge=1, le=500),
+    locale: str | None = Query(None),
     db: Session = Depends(get_db),
 ) -> dict:
     category = normalise_category(category)
-    cells = list_opportunity_cells(db, category=category, district=district, limit=limit)
-    return {'category': category, 'district': district, 'cells': cells, 'summary': summarize_opportunity_map(cells)}
+    cells = list_opportunity_cells(db, category=category, district=district, sector=sector, cell=cell, limit=limit, locale=locale)
+    return {'category': category, 'district': district, 'sector': sector, 'cell': cell, 'cells': cells, 'summary': summarize_opportunity_map(cells)}
 
 
 @router.get('/opportunity-geojson')
@@ -79,7 +83,7 @@ def opportunity_geojson(
             quality_filter += " AND COALESCE(q.candidate_status, 'candidate') = 'candidate'"
 
         rows = db.execute(text(f"""
-            SELECT p.grid_id, p.opportunity_score, p.demand_score, p.accessibility_score,
+            SELECT p.grid_id, p.opportunity_score, p.opportunity_score AS gap_score, p.demand_score, p.accessibility_score,
                    p.commercial_activity_score, p.competition_pressure, p.confidence_score,
                    p.opportunity_type, p.zone_key, p.risk_level, p.district, p.sector, p.cell, p.explanation,
                    q.candidate_status, q.water_overlap_pct, q.poi_count_500,
@@ -171,6 +175,33 @@ def assess(payload: dict, db: Session = Depends(get_db)) -> dict:
         radius_meters=int(payload.get('radius_meters') or 500),
         locale=payload.get('locale'),
     )
+
+
+@router.get('/nearby-competitors')
+def nearby_competitors(
+    latitude: float, longitude: float, category: str = Query('pharmacy'),
+    radius_meters: int = Query(1000, ge=100, le=3000), limit: int = Query(40, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> dict:
+    category = normalise_category(category)
+    competitors = list_nearby_competitors(db, latitude, longitude, category, radius_meters, limit)
+    return {"business_category": category, "latitude": latitude, "longitude": longitude, "competitors": competitors}
+
+
+@router.get('/village-boundary')
+def village_boundary(latitude: float, longitude: float, db: Session = Depends(get_db)) -> dict:
+    import json
+
+    boundary = get_village_boundary(db, latitude, longitude)
+    if boundary:
+        return {
+            "district": boundary.get("district"),
+            "sector": boundary.get("sector"),
+            "cell": boundary.get("cell"),
+            "village": boundary.get("village"),
+            "geometry": json.loads(boundary["geometry"]) if boundary.get("geometry") else None,
+        }
+    return {"district": None, "sector": None, "cell": None, "village": None, "geometry": None}
 
 
 @router.get('/area-preview')

@@ -1,0 +1,156 @@
+{
+  "target": "observed_count",
+  "split_strategy": "group_shuffle_split_by_sector",
+  "training_rows": 4105,
+  "training_sectors": 27,
+  "validation_rows": 1550,
+  "validation_sectors": 8,
+  "best_model": "extra_trees",
+  "results": [
+    {
+      "algorithm": "random_forest",
+      "metrics": {
+        "mae": 0.3201,
+        "rmse": 1.1619,
+        "r2": 0.7531
+      },
+      "status": "ok"
+    },
+    {
+      "algorithm": "extra_trees",
+      "metrics": {
+        "mae": 0.3185,
+        "rmse": 1.2998,
+        "r2": 0.691
+      },
+      "status": "ok"
+    },
+    {
+      "algorithm": "gradient_boosting",
+      "metrics": {
+        "mae": 0.3756,
+        "rmse": 1.3323,
+        "r2": 0.6754
+      },
+      "status": "ok"
+    },
+    {
+      "algorithm": "hist_gradient_boosting",
+      "metrics": {
+        "mae": 0.3817,
+        "rmse": 1.4038,
+        "r2": 0.6396
+      },
+      "status": "ok"
+    },
+    {
+      "algorithm": "k_nearest_neighbors",
+      "metrics": {
+        "mae": 0.4176,
+        "rmse": 1.6577,
+        "r2": 0.4974
+      },
+      "status": "ok"
+    },
+    {
+      "algorithm": "lightgbm",
+      "metrics": {
+        "mae": 0.444,
+        "rmse": 1.5306,
+        "r2": 0.5715
+      },
+      "status": "ok"
+    },
+    {
+      "algorithm": "xgboost",
+      "metrics": {
+        "mae": 0.3402,
+        "rmse": 1.2468,
+        "r2": 0.7157
+      },
+      "status": "ok"
+    }
+  ],
+  "shap_top_features": [
+    {
+      "feature": "demand_generator_count_1000m",
+      "mean_abs_shap": 0.41461219184391945
+    },
+    {
+      "feature": "business_category_pharmacy",
+      "mean_abs_shap": 0.2953442485091749
+    },
+    {
+      "feature": "health_facility_count_1000m",
+      "mean_abs_shap": 0.18943888960757146
+    },
+    {
+      "feature": "business_category_restaurant",
+      "mean_abs_shap": 0.1171577519880157
+    },
+    {
+      "feature": "business_category_salon",
+      "mean_abs_shap": 0.03334552000865086
+    },
+    {
+      "feature": "population_density_1000m",
+      "mean_abs_shap": 0.026716615385600224
+    },
+    {
+      "feature": "bus_stop_count_500m",
+      "mean_abs_shap": 0.025255378973523937
+    },
+    {
+      "feature": "population_density_500m",
+      "mean_abs_shap": 0.024804393710561583
+    },
+    {
+      "feature": "sector_Remera",
+      "mean_abs_shap": 0.023560233935087486
+    },
+    {
+      "feature": "school_count_1000m",
+      "mean_abs_shap": 0.021106701117861927
+    },
+    {
+      "feature": "sector_Kimihurura",
+      "mean_abs_shap": 0.020428945370448932
+    },
+    {
+      "feature": "commercial_poi_count_500m",
+      "mean_abs_shap": 0.020163057539458813
+    },
+    {
+      "feature": "district_Gasabo",
+      "mean_abs_shap": 0.019745881894180722
+    },
+    {
+      "feature": "complementary_poi_count_500m",
+      "mean_abs_shap": 0.019425394972608333
+    },
+    {
+      "feature": "sector_Muhima",
+      "mean_abs_shap": 0.018946137594313812
+    },
+    {
+      "feature": "sector_Gisozi",
+      "mean_abs_shap": 0.01837497092151872
+    },
+    {
+      "feature": "sector_Kacyiru",
+      "mean_abs_shap": 0.017082568132495077
+    },
+    {
+      "feature": "sector_population",
+      "mean_abs_shap": 0.01668888044797136
+    },
+    {
+      "feature": "welfare_proxy",
+      "mean_abs_shap": 0.014421031791852692
+    },
+    {
+      "feature": "sector_Kimironko",
+      "mean_abs_shap": 0.013835342519281979
+    }
+  ]
+}

@@ -26,20 +26,33 @@ MAX_ATTEMPTS = 3
 RETRY_DELAY_SECONDS = 2.0
 
 SYSTEM_INSTRUCTION = """You are a location-strategy advisor for small business owners in Kigali, \
-Rwanda. You are given real, already-computed spatial data about one candidate location: demand, \
-accessibility, commercial activity, competition, and welfare/affordability signals, plus the \
-business category being considered.
+Rwanda. You are given a real, model-based demand-versus-supply gap analysis for one candidate \
+location: how many businesses of this category the area's fundamentals (population, income, \
+transport, nearby anchors) predict, versus how many are actually observed nearby, plus \
+demand/accessibility/commercial-activity signals and the business category being considered.
+
+This is a spatial gap measurement, not a success predictor. A positive gap means fundamentals \
+predict more businesses than are currently there (underserved); near zero means supply already \
+matches what's predicted (balanced); negative means more supply than predicted (saturated). It \
+cannot see businesses OpenStreetMap never mapped, especially informal ones, so treat "observed" as \
+a floor, not a ceiling.
 
 Write concise, practical advice grounded ONLY in the numbers given to you. Do not invent facts \
 about the location, do not claim to know competitor names or exact foot traffic, and do not \
 predict revenue, profit, or whether the business will succeed - that is explicitly out of scope. \
 Frame everything as considerations to weigh, not guarantees.
 
-Cover, briefly: (1) what the numbers suggest about who the likely customers are and when they'd \
-visit, (2) a positioning idea suited to the demand/competition balance shown (e.g. differentiate \
-vs. compete on price, given the competition level), (3) one or two practical next steps specific \
-to this category and this data. Keep it to 4-6 short sentences, plain language, no headers or \
-markdown, no bullet lists - written prose."""
+Cover, briefly: (1) what the expected-versus-observed gap suggests about this location for this \
+category, (2) a positioning idea suited to the gap and competition shown (e.g. differentiate vs. \
+compete on price, given how saturated or underserved the area looks), (3) one or two practical \
+next steps specific to this category and this data, including verifying the gap on the ground \
+since OSM undercounts informal businesses. Keep it to 4-6 short sentences, plain language, no \
+headers or markdown, no bullet lists - written prose.
+
+You may also be given optional user-stated context (a rent/budget figure, free-text notes). Use \
+it only to personalize tone and practical framing - e.g. whether a positioning idea fits a tight \
+budget. Never invent specific numbers (exact rent prices, revenue) from it, and never treat it as \
+data the model used to compute the gap - it did not."""
 
 SYSTEM_INSTRUCTION_RW = SYSTEM_INSTRUCTION + """
 
@@ -70,7 +83,49 @@ def is_available() -> bool:
     return _client() is not None
 
 
-def generate_advice(assessment: dict[str, Any], locale: str | None = None, history: list[dict[str, str]] | None = None) -> dict[str, Any]:
+def build_context_prompt(assessment: dict[str, Any], user_context: dict[str, str] | None = None) -> str:
+    """Pure function (no Gemini call) so the prompt content is unit-testable."""
+    overall = assessment.get("overall", {})
+    factors = assessment.get("factors", {})
+    competition = assessment.get("competition", {})
+
+    location = assessment.get("location_label") or f"{assessment.get('sector') or 'unknown sector'}, {assessment.get('district') or 'unknown district'}"
+    lines = [
+        f"Business category: {assessment.get('business_category')}",
+        f"Location: {location}",
+        f"Expected number of {assessment.get('business_category')} businesses nearby, predicted from area fundamentals: {overall.get('expected_count')}",
+        f"Observed number of {assessment.get('business_category')} businesses actually nearby (OSM-derived, likely undercounts informal ones): {overall.get('observed_count')}",
+        f"Gap (expected minus observed, positive = underserved, negative = saturated): {overall.get('gap')}",
+        f"Gap percentile within this category (0-100, higher = more underserved relative to other areas): {overall.get('gap_score')}",
+        f"Classification: {overall.get('opportunity_type')}",
+        f"Confidence in this assessment (0-100): {overall.get('confidence_score')}",
+        f"Demand score: {factors.get('demand_score')}",
+        f"Accessibility score: {factors.get('accessibility_score')}",
+        f"Commercial activity score: {factors.get('commercial_activity_score')}",
+        f"Competition pressure (0-100, higher means more competitors): {factors.get('competition_pressure')}",
+        f"Same-category competitors within 300m/500m/1000m: "
+        f"{competition.get('within_300m')}/{competition.get('within_500m')}/{competition.get('within_1000m')}",
+    ]
+
+    budget = (user_context or {}).get("budget")
+    notes = (user_context or {}).get("notes")
+    if budget:
+        lines.append(f"User-stated rent/budget context: {budget}")
+    if notes:
+        lines.append(f"User-stated other context: {notes}")
+    if budget or notes:
+        lines.append(
+            "Use the user-stated context above only to personalize tone and practical framing - "
+            "never invent specific numbers (e.g. exact rent prices) from it, and never treat it as "
+            "data the model used."
+        )
+    return "\n".join(lines)
+
+
+def generate_advice(
+    assessment: dict[str, Any], locale: str | None = None,
+    history: list[dict[str, str]] | None = None, user_context: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """assessment is the payload returned by ml_opportunity_service.assess_location_ml().
 
     history, if given, is the prior conversation for this same location as a list
@@ -79,6 +134,9 @@ def generate_advice(assessment: dict[str, Any], locale: str | None = None, histo
     single-shot initial advice. Conversation state lives entirely on the client -
     it's resent in full on every follow-up rather than persisted server-side,
     since a location assessment session doesn't need to survive a page reload.
+
+    user_context, if given, is optional user-stated {"budget": str, "notes": str} -
+    passed through to Gemini for personalized framing only, never fed to the model.
     """
     client = _client()
     if client is None:
@@ -94,23 +152,7 @@ def generate_advice(assessment: dict[str, Any], locale: str | None = None, histo
     if is_follow_up:
         system_instruction += FOLLOW_UP_INSTRUCTION
 
-    overall = assessment.get("overall", {})
-    factors = assessment.get("factors", {})
-    competition = assessment.get("competition", {})
-
-    context_prompt = (
-        f"Business category: {assessment.get('business_category')}\n"
-        f"Location: {assessment.get('sector') or 'unknown sector'}, {assessment.get('district') or 'unknown district'}\n"
-        f"Opportunity index score (0-100, higher is better): {overall.get('opportunity_score')}\n"
-        f"Opportunity classification: {overall.get('opportunity_type')}\n"
-        f"Confidence in this assessment (0-100): {overall.get('confidence_score')}\n"
-        f"Demand score: {factors.get('demand_score')}\n"
-        f"Accessibility score: {factors.get('accessibility_score')}\n"
-        f"Commercial activity score: {factors.get('commercial_activity_score')}\n"
-        f"Competition pressure (0-100, higher means more competitors): {factors.get('competition_pressure')}\n"
-        f"Same-category competitors within 300m/500m/1000m: "
-        f"{competition.get('within_300m')}/{competition.get('within_500m')}/{competition.get('within_1000m')}"
-    )
+    context_prompt = build_context_prompt(assessment, user_context)
 
     contents: list[Any] = [types.Content(role="user", parts=[types.Part(text=context_prompt)])]
     for msg in (history or [])[-MAX_HISTORY_MESSAGES:]:

@@ -6,50 +6,67 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.services.location_labels import location_label
 
-def _normalise_row(row: Any) -> dict[str, Any]:
+
+def _normalise_row(row: Any, locale: str | None = None) -> dict[str, Any]:
     data = dict(row)
     # Keep a stable contract for every frontend page.
     data.setdefault("name", data.get("grid_id", "Opportunity zone"))
     data.setdefault("zone_key", "emerging")
     data.setdefault("opportunity_type", data.get("experience_badge", "Worth comparing"))
     data.setdefault("risk_level", "medium")
+    data["location_label"] = location_label(data.get("district"), data.get("sector"), data.get("cell"), data.get("village"), locale)
     return data
 
 
-def list_opportunity_cells(db: Session, category: str = "salon", district: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
-    """Return top opportunity cells.
+def list_opportunity_cells(
+    db: Session, category: str = "salon", district: str | None = None,
+    sector: str | None = None, cell: str | None = None, limit: int = 50, locale: str | None = None,
+) -> list[dict[str, Any]]:
+    """Return top opportunity cells, optionally scoped down to a sector or cell
+    within a district (used for the "rank best cells in this area" flow).
 
     Uses real ML predictions only. Empty output means the backend data pipeline has not produced predictions yet.
     """
     try:
         sql = """
             SELECT
-                grid_id,
-                business_category,
-                opportunity_score,
-                opportunity_type,
-                demand_score,
-                accessibility_score,
-                commercial_activity_score,
-                competition_pressure,
-                confidence_score,
-                opportunity_rank,
-                explanation,
-                ST_Y(geom) AS latitude,
-                ST_X(geom) AS longitude,
-                COALESCE(NULLIF(district, ''), 'Kigali') AS district
-            FROM ml.ml_opportunity_predictions
-            WHERE business_category = :category
+                p.grid_id,
+                p.business_category,
+                p.opportunity_score,
+                p.opportunity_type,
+                p.demand_score,
+                p.accessibility_score,
+                p.commercial_activity_score,
+                p.competition_pressure,
+                p.confidence_score,
+                p.opportunity_rank,
+                p.explanation,
+                ST_Y(p.geom) AS latitude,
+                ST_X(p.geom) AS longitude,
+                COALESCE(NULLIF(p.district, ''), 'Kigali') AS district,
+                p.sector,
+                p.cell,
+                g.village
+            FROM ml.ml_opportunity_predictions p
+            LEFT JOIN geo.analysis_grid g ON g.grid_id = p.grid_id
+            WHERE p.business_category = :category
         """
         params: dict[str, Any] = {"category": category, "limit": limit}
         if district:
-            sql += " AND lower(district) = lower(:district)"
+            sql += " AND lower(p.district) = lower(:district)"
             params["district"] = district
-        sql += " ORDER BY opportunity_score DESC, confidence_score DESC LIMIT :limit"
+        if sector:
+            sql += " AND lower(p.sector) = lower(:sector)"
+            params["sector"] = sector
+        if cell:
+            sql += " AND lower(p.cell) = lower(:cell)"
+            params["cell"] = cell
+        sql += " ORDER BY p.opportunity_score DESC, p.confidence_score DESC LIMIT :limit"
         rows = db.execute(text(sql), params).mappings().all()
         if rows:
-            return [_normalise_row(r) for r in rows]
+            return [_normalise_row(r, locale) for r in rows]
     except Exception:
         db.rollback()
     return []

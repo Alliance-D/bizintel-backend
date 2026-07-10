@@ -133,7 +133,8 @@ labelled AS (
     c.centroid,
     d.district,
     s.sector,
-    ce.cell
+    ce.cell,
+    v.village
   FROM clipped c
   LEFT JOIN LATERAL (
     SELECT district FROM geo.admin_boundaries b
@@ -150,9 +151,14 @@ labelled AS (
     WHERE b.boundary_level = 'cell' AND b.geom IS NOT NULL AND ST_Contains(b.geom, c.centroid)
     LIMIT 1
   ) ce ON TRUE
+  LEFT JOIN LATERAL (
+    SELECT village FROM geo.admin_boundaries b
+    WHERE b.boundary_level = 'village' AND b.geom IS NOT NULL AND ST_Contains(b.geom, c.centroid)
+    LIMIT 1
+  ) v ON TRUE
 )
-INSERT INTO geo.analysis_grid (grid_id, cell_radius_m, geom, centroid, district, sector, cell)
-SELECT grid_id, CAST(:radius AS integer), geom, centroid, district, sector, cell
+INSERT INTO geo.analysis_grid (grid_id, cell_radius_m, geom, centroid, district, sector, cell, village)
+SELECT grid_id, CAST(:radius AS integer), geom, centroid, district, sector, cell, village
 FROM labelled
 WHERE district IN ('Gasabo', 'Kicukiro', 'Nyarugenge')
 ON CONFLICT (grid_id) DO UPDATE SET
@@ -161,7 +167,8 @@ ON CONFLICT (grid_id) DO UPDATE SET
   centroid = EXCLUDED.centroid,
   district = EXCLUDED.district,
   sector = EXCLUDED.sector,
-  cell = EXCLUDED.cell;
+  cell = EXCLUDED.cell,
+  village = EXCLUDED.village;
     """)
     eng = engine()
     with eng.begin() as conn:

@@ -42,3 +42,30 @@ class ReportCreate(BaseModel):
     latitude: float
     longitude: float
     saved_location_id: int | None = None
+
+class UnifiedReportPoint(BaseModel):
+    mode: Literal['point'] = 'point'
+    latitude: float = Field(..., ge=-3.0, le=-1.0)
+    longitude: float = Field(..., ge=28.0, le=31.5)
+    label: str | None = None
+
+class UnifiedReportArea(BaseModel):
+    mode: Literal['area'] = 'area'
+    district: str
+    sector: str | None = None
+    cell: str | None = None
+    label: str | None = None
+
+class UnifiedReportRequest(BaseModel):
+    business_category: str
+    locations: list[UnifiedReportPoint | UnifiedReportArea] = Field(..., min_length=1, max_length=4)
+    budget: str | None = Field(None, max_length=300)
+    notes: str | None = Field(None, max_length=500)
+    locale: str | None = None
+
+class UnifiedReportExpandRequest(BaseModel):
+    entry_index: int = Field(..., ge=0)
+    grid_id: str
+    latitude: float
+    longitude: float
+    label: str | None = None

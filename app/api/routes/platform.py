@@ -9,6 +9,7 @@ from app.core.categories import normalise_category
 from app.services.ml_opportunity_service import assess_location_ml, _localize_opportunity_type, list_nearby_competitors
 from app.services.opportunity_service import list_opportunity_cells, summarize_opportunity_map
 from app.services.geography_service import get_village_boundary
+from app.services.location_labels import location_label
 
 router = APIRouter()
 
@@ -85,12 +86,13 @@ def opportunity_geojson(
         rows = db.execute(text(f"""
             SELECT p.grid_id, p.opportunity_score, p.opportunity_score AS gap_score, p.demand_score, p.accessibility_score,
                    p.commercial_activity_score, p.competition_pressure, p.confidence_score,
-                   p.opportunity_type, p.zone_key, p.risk_level, p.district, p.sector, p.cell, p.explanation,
+                   p.opportunity_type, p.zone_key, p.risk_level, p.district, p.sector, p.cell, g.village, p.explanation,
                    q.candidate_status, q.water_overlap_pct, q.poi_count_500,
                    q.building_count_300, q.road_count_300, q.warning_labels AS qa_warning_labels,
                    {value_expr} AS layer_value,
                    ST_AsGeoJSON(COALESCE(p.cell_geom, ST_Buffer(p.geom::geography, 350)::geometry)) AS geometry
             FROM ml.ml_opportunity_predictions p
+            LEFT JOIN geo.analysis_grid g ON g.grid_id = p.grid_id
             {quality_join}
             WHERE p.business_category = :category
               {quality_filter}
@@ -102,6 +104,7 @@ def opportunity_geojson(
                 props = {k: (dict(v) if hasattr(v, 'keys') else v) for k, v in dict(r).items() if k != 'geometry'}
                 if props.get('opportunity_type'):
                     props['opportunity_type'] = _localize_opportunity_type(props['opportunity_type'], locale)
+                props['location_label'] = location_label(props.get('district'), props.get('sector'), props.get('cell'), props.get('village'), locale)
                 return props
 
             return {

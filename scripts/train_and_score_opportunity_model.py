@@ -214,10 +214,10 @@ def narrative_explanation(row: pd.Series, expected: float, observed: float, gap_
         "strengths": strengths,
         "risks": risks,
         "field_checks": [
-            "Count visible competitors and informal businesses nearby - OSM undercounts these",
-            "Check foot traffic during morning, midday and evening",
+            "Visit at morning, midday and evening to see how the foot traffic changes",
+            "Walk the street and count the shops like this one you can see, including small informal stalls",
             "Confirm rent, frontage, visibility and access from the street",
-            "Ask nearby residents or workers about unmet needs and price expectations",
+            "Ask nearby residents or workers what they still travel elsewhere to buy",
         ],
     }
 

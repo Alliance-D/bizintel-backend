@@ -6,11 +6,11 @@ from app.services.ml_opportunity_service import assess_location_ml
 
 def field_visit_checklist(category: str) -> list[str]:
     return [
-        'Verify rent price and lease conditions.',
-        'Count pedestrian activity at morning, midday and evening.',
-        f'Check visible and informal {category} competitors missing from datasets.',
-        'Assess visibility, signage, frontage, access, safety, utilities and parking.',
-        'Ask nearby businesses about customer flow and rent conditions.',
+        'Visit at morning, midday and evening to see how the foot traffic changes.',
+        f'Walk the street and count the {category} shops you can see, including small informal stalls.',
+        'Check how easily customers reach the spot on foot from the nearest road and bus stop.',
+        'Confirm the rent, lease terms and the condition of the unit.',
+        'Ask nearby shopkeepers and residents what they still travel elsewhere to buy.',
     ]
 
 

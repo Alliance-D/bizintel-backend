@@ -55,11 +55,13 @@ def nearest_landmark(db: Session, latitude: float, longitude: float, locale: str
     """A recognisable place near a point - the closest named market, school,
     health facility, bus hub, bank or notable business within ~800m - so two
     grid cells inside the same administrative cell can be told apart by
-    something a person can actually picture ("near Kimironko market"), rather
-    than sharing an identical cell label. Returns None if nothing recognisable
-    is close, and callers fall back to the cell name.
+    something a person can actually picture ("Kimironko market"), rather than
+    sharing an identical cell label. Returns the bare place name (the "near"/
+    "hafi ya" connector is added by the client so it translates); returns None
+    if nothing recognisable is close, and callers fall back to the cell name.
+    The locale arg is accepted for signature compatibility but no longer used -
+    a proper place name is the same in either language.
     """
-    rw = (locale or "").lower().startswith(("rw", "kin"))
     try:
         row = db.execute(text("""
             SELECT name
@@ -71,8 +73,7 @@ def nearest_landmark(db: Session, latitude: float, longitude: float, locale: str
             LIMIT 1
         """), {"lon": longitude, "lat": latitude}).mappings().first()
         if row and row["name"]:
-            name = str(row["name"]).strip()
-            return f"hafi ya {name}" if rw else f"near {name}"
+            return str(row["name"]).strip()
     except Exception:
         db.rollback()
     return None

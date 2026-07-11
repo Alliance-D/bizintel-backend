@@ -1,6 +1,10 @@
-"""Turns a grid cell's raw district/sector/cell/village fields into a
-human-readable location name for reports, instead of exposing a raw grid_id.
-Falls back gracefully as fields go missing: village -> cell -> sector -> district.
+"""Turns a grid cell's raw district/sector/cell fields into a human-readable
+location name for reports, instead of exposing a raw grid_id.
+
+Labels are administrative and cell-based (cell within sector); villages are
+deliberately not used - they're too granular to be a useful, recognisable
+handle for a location in the report. Falls back gracefully as fields go
+missing: cell -> sector -> district.
 """
 from __future__ import annotations
 
@@ -13,25 +17,24 @@ def location_label(
     district: str | None,
     sector: str | None,
     cell: str | None,
-    village: str | None,
+    village: str | None = None,  # accepted for backward compat, intentionally unused
     locale: str | None = None,
 ) -> str:
-    rw = _is_rw(locale)
+    def norm(x: str | None) -> str:
+        return (x or "").strip()
 
-    if village and sector:
-        return f"aho hafi y'umudugudu wa {village}, mu Murenge wa {sector}" if rw \
-            else f"the part of {sector} around {village} village"
-    if village and district:
-        return f"aho hafi y'umudugudu wa {village}, mu Karere ka {district}" if rw \
-            else f"the part of {district} around {village} village"
-    if village:
-        return f"hafi y'umudugudu wa {village}" if rw else f"near {village} village"
-    if cell and sector:
-        return f"Akagari ka {cell}, Umurenge wa {sector}" if rw else f"{cell}, {sector} sector"
-    if sector and district:
-        return f"Umurenge wa {sector}, Akarere ka {district}" if rw else f"{sector} sector, {district} district"
-    if sector:
-        return f"Umurenge wa {sector}" if rw else f"{sector} sector"
-    if district:
-        return f"Akarere ka {district}" if rw else f"{district} district"
+    d, s, c = norm(district), norm(sector), norm(cell)
+
+    # Rwandan admin naming often repeats a name across levels (e.g. Kimironko
+    # cell inside Kimironko sector) - collapse the repeat rather than say it twice.
+    if c and s and c.lower() != s.lower():
+        return f"{c}, {s}"
+    if c:
+        return c
+    if s and d and s.lower() != d.lower():
+        return f"{s}, {d}"
+    if s:
+        return s
+    if d:
+        return d
     return "Kigali"

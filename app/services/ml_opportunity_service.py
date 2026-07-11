@@ -45,7 +45,8 @@ def assess_location_ml(db: Session, latitude: float, longitude: float, business_
         }).mappings().first()
         if prediction:
             competitors = _competitors(db, longitude, latitude, business_category, radius_meters)
-            return _prediction_payload(dict(prediction), latitude, longitude, business_category, competitors, locale=locale)
+            signals_raw = _grid_signals(db, prediction.get("grid_id"), business_category)
+            return _prediction_payload(dict(prediction), latitude, longitude, business_category, competitors, locale=locale, signals_raw=signals_raw)
     except Exception:
         db.rollback()
 
@@ -59,6 +60,7 @@ def assess_location_ml(db: Session, latitude: float, longitude: float, business_
         "location_label": location_label(None, None, None, None, locale),
         "overall": {"gap_score": 0, "opportunity_score": 0, "confidence_score": 0, "opportunity_type": _localize_opportunity_type("Prediction unavailable", locale), "opportunity_rank": None, "expected_count": None, "observed_count": None, "gap": None},
         "factors": {"demand_score": 0, "accessibility_score": 0, "commercial_activity_score": 0, "competition_pressure": 0},
+        "signals": _build_signals({}, 0, None, 0, locale),
         "competition": {"within_300m": 0, "within_500m": 0, "within_1000m": 0},
         "nearby_context": [],
         "explanation": {"summary": "Nta iteganya ryabonetse kuri aha hantu n'ubu bwoko." if rw else "No prediction was found for this location and category."},
@@ -109,7 +111,88 @@ def list_nearby_competitors(db: Session, latitude: float, longitude: float, cate
         return []
 
 
-def _prediction_payload(prediction: dict[str, Any], latitude: float, longitude: float, category: str, competitors: dict[str, int], source: str = "ml_prediction_cache", locale: str | None = None) -> dict[str, Any]:
+def list_nearby_pois(db: Session, latitude: float, longitude: float, category_keys: list[str], radius_meters: int = 1000, limit: int = 40) -> list[dict[str, Any]]:
+    """Individual POIs of one or more categories, with coordinates and distance -
+    used for the report map layers and the "what's nearby" lists (foot-traffic
+    anchors, complementary businesses). Generalises list_nearby_competitors."""
+    try:
+        rows = db.execute(text("""
+            SELECT name, category_key, ST_Y(geom) AS latitude, ST_X(geom) AS longitude,
+                   ST_Distance(geom::geography, ST_SetSRID(ST_MakePoint(:lon,:lat),4326)::geography) AS distance_m
+            FROM curated.osm_poi_features
+            WHERE category_key = ANY(:cats)
+              AND ST_DWithin(geom::geography, ST_SetSRID(ST_MakePoint(:lon,:lat),4326)::geography, :radius)
+            ORDER BY distance_m
+            LIMIT :limit
+        """), {"lon": longitude, "lat": latitude, "cats": list(category_keys), "radius": radius_meters, "limit": limit}).mappings().all()
+        return [{
+            "name": r["name"],
+            "category_key": r["category_key"],
+            "latitude": float(r["latitude"]),
+            "longitude": float(r["longitude"]),
+            "distance_m": round(float(r["distance_m"]), 1),
+        } for r in rows]
+    except Exception:
+        db.rollback()
+        return []
+
+
+def _grid_signals(db: Session, grid_id: str | None, category: str) -> dict[str, Any]:
+    """Raw area fundamentals from the nearest scored grid cell - population,
+    commercial activity, and the foot-traffic anchor counts the model used.
+    These explain the score to the user; the prediction row itself only carries
+    the derived scores, not these raw inputs."""
+    if not grid_id:
+        return {}
+    try:
+        row = db.execute(text("""
+            SELECT population_density_1000m, sector_population, employment_rate, income_proxy,
+                   commercial_poi_count_500m, complementary_poi_count_500m, demand_generator_count_1000m,
+                   bus_stop_count_500m, nearest_bus_stop_m, school_count_1000m,
+                   health_facility_count_1000m, market_distance_m
+            FROM ml.grid_category_features
+            WHERE grid_id = :grid_id AND business_category = :category
+            LIMIT 1
+        """), {"grid_id": grid_id, "category": category}).mappings().first()
+        if row:
+            return {k: (float(v) if v is not None else None) for k, v in dict(row).items()}
+    except Exception:
+        db.rollback()
+    return {}
+
+
+def _activity_level(score: float, locale: str | None = None) -> str:
+    rw = _is_kinyarwanda(locale)
+    if score >= 60:
+        return "Byinshi" if rw else "High"
+    if score >= 30:
+        return "Bigereranije" if rw else "Medium"
+    return "Bike" if rw else "Low"
+
+
+def _build_signals(raw: dict[str, Any], commercial_score: float, expected_count: float | None, observed_count: float, locale: str | None = None) -> dict[str, Any]:
+    density = raw.get("population_density_1000m")
+    return {
+        # population density is people/km2; within a ~1km radius that's ~pi km2,
+        # a rough but honest "people nearby" figure for a plain-language report.
+        "people_within_1km": round(density * 3.14159) if density else None,
+        "population_density_1000m": round(density) if density else None,
+        "sector_population": round(raw["sector_population"]) if raw.get("sector_population") else None,
+        "commercial_activity_level": _activity_level(commercial_score, locale),
+        "commercial_poi_count_500m": int(raw["commercial_poi_count_500m"]) if raw.get("commercial_poi_count_500m") is not None else None,
+        "complementary_poi_count_500m": int(raw["complementary_poi_count_500m"]) if raw.get("complementary_poi_count_500m") is not None else None,
+        "anchor_count_1000m": int(raw["demand_generator_count_1000m"]) if raw.get("demand_generator_count_1000m") is not None else None,
+        "bus_stop_count_500m": int(raw["bus_stop_count_500m"]) if raw.get("bus_stop_count_500m") is not None else None,
+        "nearest_bus_stop_m": round(raw["nearest_bus_stop_m"]) if raw.get("nearest_bus_stop_m") else None,
+        "school_count_1000m": int(raw["school_count_1000m"]) if raw.get("school_count_1000m") is not None else None,
+        "health_facility_count_1000m": int(raw["health_facility_count_1000m"]) if raw.get("health_facility_count_1000m") is not None else None,
+        "market_distance_m": round(raw["market_distance_m"]) if raw.get("market_distance_m") else None,
+        "expected_count": round(float(expected_count), 1) if expected_count is not None else None,
+        "observed_count": observed_count,
+    }
+
+
+def _prediction_payload(prediction: dict[str, Any], latitude: float, longitude: float, category: str, competitors: dict[str, int], source: str = "ml_prediction_cache", locale: str | None = None, signals_raw: dict[str, Any] | None = None) -> dict[str, Any]:
     gap_score = round(float(prediction.get("opportunity_score") or 0), 2)  # gap percentile within category (0-100), see train_and_score_opportunity_model.py
     confidence = round(float(prediction.get("confidence_score") or 0), 2)
     competition = round(float(prediction.get("competition_pressure") or 0), 2)
@@ -161,6 +244,7 @@ def _prediction_payload(prediction: dict[str, Any], latitude: float, longitude: 
             "commercial_activity_score": commercial,
             "competition_pressure": competition,
         },
+        "signals": _build_signals(signals_raw or {}, commercial, expected_count, observed_count, locale),
         "competition": competitors,
         "nearby_context": [],
         "explanation": explanation,

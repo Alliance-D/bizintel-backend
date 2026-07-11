@@ -19,8 +19,14 @@ from sqlalchemy.orm import Session
 from app.core.categories import normalise_category
 from app.services.ai_advisor_service import generate_advice
 from app.services.geography_service import get_village_boundary
-from app.services.ml_opportunity_service import assess_location_ml, list_nearby_competitors
+from app.services.ml_opportunity_service import assess_location_ml, list_nearby_competitors, list_nearby_pois
 from app.services.opportunity_service import list_opportunity_cells
+
+# Foot-traffic generators - the POIs that pull a stream of people past a
+# storefront (bus stops, markets, schools, clinics).
+ANCHOR_CATEGORIES = ["transport", "market", "school", "health"]
+# Businesses that draw a similar customer to the target category.
+BUSINESS_CATEGORIES = ["pharmacy", "restaurant", "cafe", "grocery", "salon", "finance", "commercial_support"]
 
 
 def _user_context(payload: dict[str, Any]) -> dict[str, str] | None:
@@ -34,6 +40,8 @@ def build_point_entry(db: Session, category: str, point: dict[str, Any], locale:
     longitude = float(point["longitude"])
     assessment = assess_location_ml(db, latitude, longitude, category, 500, locale=locale)
     competitors = list_nearby_competitors(db, latitude, longitude, category)
+    anchors = list_nearby_pois(db, latitude, longitude, ANCHOR_CATEGORIES, radius_meters=1000, limit=30)
+    complementary = list_nearby_pois(db, latitude, longitude, [c for c in BUSINESS_CATEGORIES if c != category], radius_meters=1000, limit=30)
     boundary = get_village_boundary(db, latitude, longitude)
     narrative = generate_advice(assessment, locale=locale, user_context=user_context)
     return {
@@ -43,6 +51,8 @@ def build_point_entry(db: Session, category: str, point: dict[str, Any], locale:
         "longitude": longitude,
         "assessment": assessment,
         "competitors": competitors,
+        "anchors": anchors,
+        "complementary": complementary,
         "village_boundary": boundary,
         "narrative": narrative,
     }

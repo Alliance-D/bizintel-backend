@@ -11,7 +11,7 @@ services:
     repo: https://github.com/Alliance-D/bizintel-backend
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    plan: free
+    plan: starter
     healthCheckPath: /api/v1/health
     envVars:
       - key: APP_ENV

@@ -43,11 +43,14 @@ predict revenue, profit, or whether the business will succeed - that is explicit
 Frame everything as considerations to weigh, not guarantees.
 
 Cover, briefly: (1) what the expected-versus-observed gap suggests about this location for this \
-category, (2) a positioning idea suited to the gap and competition shown (e.g. differentiate vs. \
-compete on price, given how saturated or underserved the area looks), (3) one or two practical \
-next steps specific to this category and this data, including verifying the gap on the ground \
-since OSM undercounts informal businesses. Keep it to 4-6 short sentences, plain language, no \
-headers or markdown, no bullet lists - written prose.
+category - if there is room, say plainly that the area looks able to support more than it has; \
+(2) WHY, tied to the concrete signals given - the people living nearby, the commercial activity, \
+and especially the foot-traffic anchors (bus stops, markets, schools pull a steady stream of \
+people past a storefront, which a walk-in business depends on); (3) what to look for on the \
+ground when picking an actual unit - things like choosing a spot close to the main road for \
+visibility and access, or near a bus stop or the market where foot traffic is heaviest; (4) one \
+or two things to verify in person, since OSM undercounts informal businesses. Keep it to 4-7 \
+short sentences, plain language, no headers or markdown, no bullet lists - written prose.
 
 You may also be given optional user-stated context (a rent/budget figure, free-text notes). Use \
 it only to personalize tone and practical framing - e.g. whether a positioning idea fits a tight \
@@ -88,6 +91,7 @@ def build_context_prompt(assessment: dict[str, Any], user_context: dict[str, str
     overall = assessment.get("overall", {})
     factors = assessment.get("factors", {})
     competition = assessment.get("competition", {})
+    signals = assessment.get("signals", {})
 
     location = assessment.get("location_label") or f"{assessment.get('sector') or 'unknown sector'}, {assessment.get('district') or 'unknown district'}"
     lines = [
@@ -96,13 +100,13 @@ def build_context_prompt(assessment: dict[str, Any], user_context: dict[str, str
         f"Expected number of {assessment.get('business_category')} businesses nearby, predicted from area fundamentals: {overall.get('expected_count')}",
         f"Observed number of {assessment.get('business_category')} businesses actually nearby (OSM-derived, likely undercounts informal ones): {overall.get('observed_count')}",
         f"Gap (expected minus observed, positive = underserved, negative = saturated): {overall.get('gap')}",
-        f"Gap percentile within this category (0-100, higher = more underserved relative to other areas): {overall.get('gap_score')}",
         f"Classification: {overall.get('opportunity_type')}",
         f"Confidence in this assessment (0-100): {overall.get('confidence_score')}",
-        f"Demand score: {factors.get('demand_score')}",
-        f"Accessibility score: {factors.get('accessibility_score')}",
-        f"Commercial activity score: {factors.get('commercial_activity_score')}",
-        f"Competition pressure (0-100, higher means more competitors): {factors.get('competition_pressure')}",
+        f"People living nearby (approx within 1km): {signals.get('people_within_1km')}",
+        f"Commercial activity level in the area: {signals.get('commercial_activity_level')}",
+        f"Foot-traffic anchors within 1km - bus stops: {signals.get('bus_stop_count_500m')} (nearest {signals.get('nearest_bus_stop_m')}m), "
+        f"schools: {signals.get('school_count_1000m')}, health facilities: {signals.get('health_facility_count_1000m')}, "
+        f"distance to nearest market: {signals.get('market_distance_m')}m",
         f"Same-category competitors within 300m/500m/1000m: "
         f"{competition.get('within_300m')}/{competition.get('within_500m')}/{competition.get('within_1000m')}",
     ]

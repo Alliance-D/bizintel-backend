@@ -7,6 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.services.location_labels import location_label
+from app.services.geography_service import nearest_landmark
 
 
 def _normalise_row(row: Any, locale: str | None = None) -> dict[str, Any]:
@@ -23,6 +24,7 @@ def _normalise_row(row: Any, locale: str | None = None) -> dict[str, Any]:
 def list_opportunity_cells(
     db: Session, category: str = "salon", district: str | None = None,
     sector: str | None = None, cell: str | None = None, limit: int = 50, locale: str | None = None,
+    with_landmarks: bool = False,
 ) -> list[dict[str, Any]]:
     """Return top opportunity cells, optionally scoped down to a sector or cell
     within a district (used for the "rank best cells in this area" flow).
@@ -66,7 +68,13 @@ def list_opportunity_cells(
         sql += " ORDER BY p.opportunity_score DESC, p.confidence_score DESC LIMIT :limit"
         rows = db.execute(text(sql), params).mappings().all()
         if rows:
-            return [_normalise_row(r, locale) for r in rows]
+            out = [_normalise_row(r, locale) for r in rows]
+            if with_landmarks:
+                # only for the report's short candidate list (limit ~3) - one
+                # extra query per row, not worth it for the citywide map.
+                for row in out:
+                    row["landmark"] = nearest_landmark(db, row.get("latitude"), row.get("longitude"), locale)
+            return out
     except Exception:
         db.rollback()
     return []

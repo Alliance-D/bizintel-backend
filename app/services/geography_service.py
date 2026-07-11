@@ -51,6 +51,33 @@ def list_cells(db: Session, district: str, sector: str) -> list[str]:
         return []
 
 
+def nearest_landmark(db: Session, latitude: float, longitude: float, locale: str | None = None) -> str | None:
+    """A recognisable place near a point - the closest named market, school,
+    health facility, bus hub, bank or notable business within ~800m - so two
+    grid cells inside the same administrative cell can be told apart by
+    something a person can actually picture ("near Kimironko market"), rather
+    than sharing an identical cell label. Returns None if nothing recognisable
+    is close, and callers fall back to the cell name.
+    """
+    rw = (locale or "").lower().startswith(("rw", "kin"))
+    try:
+        row = db.execute(text("""
+            SELECT name
+            FROM curated.osm_poi_features
+            WHERE name IS NOT NULL AND btrim(name) <> ''
+              AND category_key IN ('market','transport','health','school','finance','commercial_support')
+              AND ST_DWithin(geom::geography, ST_SetSRID(ST_MakePoint(:lon,:lat),4326)::geography, 800)
+            ORDER BY ST_Distance(geom::geography, ST_SetSRID(ST_MakePoint(:lon,:lat),4326)::geography)
+            LIMIT 1
+        """), {"lon": longitude, "lat": latitude}).mappings().first()
+        if row and row["name"]:
+            name = str(row["name"]).strip()
+            return f"hafi ya {name}" if rw else f"near {name}"
+    except Exception:
+        db.rollback()
+    return None
+
+
 def get_village_boundary(db: Session, latitude: float, longitude: float) -> dict[str, Any] | None:
     try:
         row = db.execute(text("""

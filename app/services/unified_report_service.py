@@ -62,7 +62,7 @@ def build_area_entry(db: Session, category: str, area: dict[str, Any], locale: s
     district = area["district"]
     sector = area.get("sector")
     cell = area.get("cell")
-    candidates = list_opportunity_cells(db, category=category, district=district, sector=sector, cell=cell, limit=3, locale=locale)
+    candidates = list_opportunity_cells(db, category=category, district=district, sector=sector, cell=cell, limit=3, locale=locale, with_landmarks=True)
     return {
         "mode": "area",
         "label": area.get("label") or cell or sector or district,
@@ -71,6 +71,25 @@ def build_area_entry(db: Session, category: str, area: dict[str, Any], locale: s
         "cell": cell,
         "top_candidates": candidates,
     }
+
+
+def _best_spot_entry(db: Session, category: str, loc: dict[str, Any], locale: str | None, user_context: dict[str, str] | None) -> dict[str, Any] | None:
+    """Resolve one form location to a single concrete spot as a full point entry,
+    for head-to-head comparison. A point is itself; an area collapses to its
+    top-ranked grid cell (the spot we'd actually recommend inside it)."""
+    if loc.get("mode") == "area":
+        cands = list_opportunity_cells(
+            db, category=category, district=loc["district"], sector=loc.get("sector"),
+            cell=loc.get("cell"), limit=1, locale=locale, with_landmarks=True,
+        )
+        if not cands:
+            return None
+        c = cands[0]
+        point = {"latitude": c["latitude"], "longitude": c["longitude"], "label": loc.get("label") or c.get("landmark") or c.get("location_label")}
+        entry = build_point_entry(db, category, point, locale, user_context)
+        entry["area_scope"] = {"district": loc["district"], "sector": loc.get("sector"), "cell": loc.get("cell")}
+        return entry
+    return build_point_entry(db, category, loc, locale, user_context)
 
 
 def build_comparison_from_entries(point_entries: list[dict[str, Any]], business_category: str, locale: str | None) -> dict[str, Any] | None:
@@ -85,15 +104,16 @@ def build_comparison_from_entries(point_entries: list[dict[str, Any]], business_
         assessment = e["assessment"]
         overall = assessment.get("overall", {})
         factors = assessment.get("factors", {})
+        signals = assessment.get("signals") or {}
         gap_score = overall.get("gap_score", overall.get("opportunity_score", 0))
         results.append({
-            "label": e.get("label") or assessment.get("location_label"),
+            "label": e.get("label") or assessment.get("landmark") or assessment.get("location_label"),
+            "landmark": assessment.get("landmark"),
             "latitude": e["latitude"],
             "longitude": e["longitude"],
             "district": assessment.get("district"),
             "sector": assessment.get("sector"),
             "cell": assessment.get("cell"),
-            "village": assessment.get("village"),
             "location_label": assessment.get("location_label"),
             "gap_score": gap_score,
             "opportunity_score": gap_score,
@@ -102,40 +122,78 @@ def build_comparison_from_entries(point_entries: list[dict[str, Any]], business_
             "expected_count": overall.get("expected_count"),
             "observed_count": overall.get("observed_count"),
             "gap": overall.get("gap"),
+            "people_within_1km": signals.get("people_within_1km"),
+            "anchor_count": signals.get("anchor_count_1000m"),
             "demand_score": factors.get("demand_score"),
             "accessibility_score": factors.get("accessibility_score"),
             "commercial_activity_score": factors.get("commercial_activity_score"),
             "competition_pressure": factors.get("competition_pressure"),
             "recommendation": assessment.get("recommendation"),
         })
-    results.sort(key=lambda r: r["gap_score"], reverse=True)
-    winner = results[0]
-    summary = (
-        f"{winner['label']} ni ho hafite icyuho kinini hagati y'ubukenewe n'ibiboneka ku {business_category.replace('_', ' ')}, ni ho hakiri umwanya munini."
-        if rw else
-        f"{winner['label']} shows the largest demand-versus-supply gap for {business_category.replace('_', ' ')} - the most underserved of the options compared."
-    )
+    results.sort(key=lambda r: (r["gap_score"], -(r.get("competition_pressure") or 0)), reverse=True)
+    winner, runner = results[0], results[1]
+    summary = _comparison_summary(winner, runner, business_category, rw)
     return {"locations": results, "best_location": winner, "summary": summary}
+
+
+def _num(v: Any) -> float:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _comparison_summary(winner: dict[str, Any], runner: dict[str, Any], category: str, rw: bool) -> str:
+    """A plain-language reason the winner edges the runner-up, in terms a founder
+    cares about: room to grow, competition, and the customer base."""
+    cat = category.replace("_", " ")
+    w_room = _num(winner.get("expected_count")) - _num(winner.get("observed_count"))
+    r_room = _num(runner.get("expected_count")) - _num(runner.get("observed_count"))
+    reasons_en, reasons_rw = [], []
+    if w_room - r_room >= 0.5:
+        reasons_en.append("more unmet demand")
+        reasons_rw.append("ubukene butarakemuka bwinshi")
+    if _num(runner.get("observed_count")) - _num(winner.get("observed_count")) >= 1:
+        reasons_en.append("fewer competitors already there")
+        reasons_rw.append("abahatanwa bake bahasanzwe")
+    if _num(winner.get("people_within_1km")) - _num(runner.get("people_within_1km")) >= 1500:
+        reasons_en.append("a larger customer base nearby")
+        reasons_rw.append("abakiriya benshi bo hafi")
+    if rw:
+        why = (", ".join(reasons_rw[:2]) or "icyuho kinini hagati y'ubukenewe n'ibiboneka")
+        return f"{winner['label']} ni ho hakwiye kubanza ku {cat}: gafite {why} ugereranyije na {runner['label']}."
+    why = (", and ".join(reasons_en[:2]) or "a wider gap between demand and what's already open")
+    return f"{winner['label']} is the stronger pick for a {cat}: it has {why} compared with {runner['label']}."
 
 
 def build_unified_report(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
     category = normalise_category(payload["business_category"])
     locale = payload.get("locale")
     user_context = _user_context(payload)
+    locations = payload["locations"]
 
-    entries = [
-        build_area_entry(db, category, loc, locale) if loc.get("mode") == "area"
-        else build_point_entry(db, category, loc, locale, user_context)
-        for loc in payload["locations"]
-    ]
-    point_entries = [e for e in entries if e["mode"] == "point"]
-    comparison = build_comparison_from_entries(point_entries, category, locale)
+    if len(locations) >= 2:
+        # Comparison: resolve every location to a single concrete spot (an area
+        # collapses to its best cell) and put them head-to-head, rather than
+        # showing each area's own internal shortlist side by side.
+        entries = [e for e in (_best_spot_entry(db, category, loc, locale, user_context) for loc in locations) if e is not None]
+        comparison = build_comparison_from_entries(entries, category, locale)
+        report_mode = "compare"
+    else:
+        loc = locations[0]
+        entries = [
+            build_area_entry(db, category, loc, locale) if loc.get("mode") == "area"
+            else build_point_entry(db, category, loc, locale, user_context)
+        ]
+        comparison = None
+        report_mode = "single"
 
     return {
         "business_category": category,
         "budget": payload.get("budget"),
         "notes": payload.get("notes"),
         "locale": locale,
+        "mode": report_mode,
         "entries": entries,
         "comparison": comparison,
     }

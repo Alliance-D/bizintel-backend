@@ -6,6 +6,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.services.location_labels import location_label
+from app.services.geography_service import nearest_landmark
 
 
 
@@ -46,7 +47,9 @@ def assess_location_ml(db: Session, latitude: float, longitude: float, business_
         if prediction:
             competitors = _competitors(db, longitude, latitude, business_category, radius_meters)
             signals_raw = _grid_signals(db, prediction.get("grid_id"), business_category)
-            return _prediction_payload(dict(prediction), latitude, longitude, business_category, competitors, locale=locale, signals_raw=signals_raw)
+            payload = _prediction_payload(dict(prediction), latitude, longitude, business_category, competitors, locale=locale, signals_raw=signals_raw)
+            payload["landmark"] = nearest_landmark(db, latitude, longitude, locale)
+            return payload
     except Exception:
         db.rollback()
 

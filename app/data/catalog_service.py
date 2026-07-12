@@ -20,6 +20,7 @@ def list_datasets(db: Session, limit: int = 200) -> list[dict]:
 
 
 def list_features(db: Session, limit: int = 300) -> list[dict]:
+    """List engineered feature metadata from the feature catalog."""
     try:
         rows = db.execute(text("""
             SELECT feature_name, feature_group, source_layer, geographic_level,
@@ -35,6 +36,7 @@ def list_features(db: Session, limit: int = 300) -> list[dict]:
 
 
 def data_health(db: Session) -> dict:
+    """Return per-table row counts and pipeline-readiness flags."""
     checks = {}
     for key, query in {
         "population_density_points": "SELECT COUNT(*) FROM curated.population_density_points",

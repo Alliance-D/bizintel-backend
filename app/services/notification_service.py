@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 
 def list_notifications(db: Session, limit: int = 30) -> list[dict]:
+    """List recent notifications."""
     try:
         rows = db.execute(text("""
             SELECT id, title, COALESCE(body, message) AS body, alert_type, severity, created_at, saved_location_id
@@ -20,6 +21,7 @@ def list_notifications(db: Session, limit: int = 30) -> list[dict]:
 
 
 def upsert_preferences(db: Session, user_id: int, payload: dict) -> dict:
+    """Insert or update a user's notification preferences."""
     try:
         row = db.execute(text("""
             INSERT INTO app.notification_preferences (

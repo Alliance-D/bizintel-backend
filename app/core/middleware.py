@@ -7,6 +7,7 @@ from starlette.responses import Response
 
 class RequestContextMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        """Attach a request id and a response-time header to every request/response."""
         request_id = request.headers.get('x-request-id', str(uuid4()))
         request.state.request_id = request_id
         start = time.perf_counter()
@@ -19,6 +20,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        """Add security headers (nosniff, frame options, referrer/permissions policy, HSTS) to responses."""
         response: Response = await call_next(request)
         response.headers.setdefault('X-Content-Type-Options', 'nosniff')
         response.headers.setdefault('X-Frame-Options', 'DENY')

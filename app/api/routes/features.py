@@ -9,4 +9,5 @@ router = APIRouter()
 
 @router.get("/features/catalog")
 def feature_catalog(limit: int = Query(300, ge=1, le=1000), db: Session = Depends(get_db)) -> dict:
+    """List the engineered model features with their source and description."""
     return {"features": list_features(db, limit=limit)}

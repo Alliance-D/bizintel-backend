@@ -4,10 +4,12 @@ from sqlalchemy.orm import Session
 
 
 def _json(value):
+    """JSON-encode a value for storage in a JSONB column."""
     return json.dumps(value if value is not None else {})
 
 
 def list_workbench_states(db: Session, user_id: int) -> list[dict]:
+    """List a user's saved workbench states."""
     rows = db.execute(text('''
         SELECT id, title, description, business_category, center_lat, center_lon,
                zoom_level, active_layers, filters, selected_locations, state_payload,
@@ -20,6 +22,7 @@ def list_workbench_states(db: Session, user_id: int) -> list[dict]:
 
 
 def create_workbench_state(db: Session, user_id: int, payload: dict) -> dict:
+    """Persist a workbench state for a user."""
     row = db.execute(text('''
         INSERT INTO app.saved_workbench_states (
             user_id, title, description, business_category, center_lat, center_lon,
@@ -49,12 +52,14 @@ def create_workbench_state(db: Session, user_id: int, payload: dict) -> dict:
 
 
 def delete_workbench_state(db: Session, user_id: int, state_id: int) -> bool:
+    """Delete a user's workbench state, returning whether a row was removed."""
     result = db.execute(text('DELETE FROM app.saved_workbench_states WHERE id = :id AND user_id = :user_id'), {'id': state_id, 'user_id': user_id})
     db.commit()
     return result.rowcount > 0
 
 
 def get_or_create_preferences(db: Session, user_id: int) -> dict:
+    """Return a user's preferences, creating defaults if none exist."""
     row = db.execute(text('''
         INSERT INTO app.user_preferences (user_id)
         VALUES (:user_id)
@@ -66,6 +71,7 @@ def get_or_create_preferences(db: Session, user_id: int) -> dict:
 
 
 def update_preferences(db: Session, user_id: int, payload: dict) -> dict:
+    """Update a user's preferences and return them."""
     current = get_or_create_preferences(db, user_id)
     merged = {**current, **{k: v for k, v in payload.items() if v is not None}}
     row = db.execute(text('''

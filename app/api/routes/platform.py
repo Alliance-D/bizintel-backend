@@ -15,6 +15,7 @@ router = APIRouter()
 
 
 def _map_quality_available(db: Session) -> bool:
+    """True when the optional ml.map_quality_flags screening table exists."""
     try:
         return bool(db.execute(text("SELECT to_regclass('ml.map_quality_flags') IS NOT NULL")).scalar())
     except Exception:
@@ -32,6 +33,7 @@ def opportunity_cells(
     locale: str | None = Query(None),
     db: Session = Depends(get_db),
 ) -> dict:
+    """List opportunity cells for a category, optionally filtered by district/sector/cell."""
     category = normalise_category(category)
     cells = list_opportunity_cells(db, category=category, district=district, sector=sector, cell=cell, limit=limit, locale=locale)
     return {'category': category, 'district': district, 'sector': sector, 'cell': cell, 'cells': cells, 'summary': summarize_opportunity_map(cells)}
@@ -101,6 +103,7 @@ def opportunity_geojson(
         """), {'category': category, 'limit': limit}).mappings().all()
         if rows:
             def _feature_properties(r):
+                """Serialize one map cell's DB row into GeoJSON feature properties, localizing the opportunity type and adding a location label."""
                 props = {k: (dict(v) if hasattr(v, 'keys') else v) for k, v in dict(r).items() if k != 'geometry'}
                 if props.get('opportunity_type'):
                     props['opportunity_type'] = _localize_opportunity_type(props['opportunity_type'], locale)
@@ -170,6 +173,7 @@ def map_quality_summary(db: Session = Depends(get_db)) -> dict:
 
 @router.post('/assess')
 def assess(payload: dict, db: Session = Depends(get_db)) -> dict:
+    """Assess a point for a category (nearest scored cell + live competitor recount)."""
     return assess_location_ml(
         db,
         latitude=float(payload.get('latitude')),
@@ -186,6 +190,7 @@ def nearby_competitors(
     radius_meters: int = Query(1000, ge=100, le=3000), limit: int = Query(40, ge=1, le=100),
     db: Session = Depends(get_db),
 ) -> dict:
+    """List individual competitor points (name + position) around a location."""
     category = normalise_category(category)
     competitors = list_nearby_competitors(db, latitude, longitude, category, radius_meters, limit)
     return {"business_category": category, "latitude": latitude, "longitude": longitude, "competitors": competitors}
@@ -193,6 +198,7 @@ def nearby_competitors(
 
 @router.get('/village-boundary')
 def village_boundary(latitude: float, longitude: float, db: Session = Depends(get_db)) -> dict:
+    """Return the administrative area (district/sector/cell/village) and its outline at a point."""
     import json
 
     boundary = get_village_boundary(db, latitude, longitude)
@@ -209,6 +215,7 @@ def village_boundary(latitude: float, longitude: float, db: Session = Depends(ge
 
 @router.get('/area-preview')
 def area_preview(latitude: float, longitude: float, category: str = Query('pharmacy'), db: Session = Depends(get_db)) -> dict:
+    """Lightweight single-point assessment used for map hover/preview."""
     category = normalise_category(category)
     assessment = assess_location_ml(db, latitude=latitude, longitude=longitude, business_category=category, radius_meters=500)
     return {'category': category, 'location': assessment, 'source': assessment.get('source')}
@@ -241,6 +248,7 @@ def best_business(latitude: float, longitude: float, db: Session = Depends(get_d
 
 @router.get('/competition-analysis')
 def competition_analysis(latitude: float, longitude: float, category: str = Query('pharmacy'), db: Session = Depends(get_db)) -> dict:
+    """Competitor counts by radius plus nearby complementary/demand-generating POIs."""
     category = normalise_category(category)
     try:
         row = db.execute(text("""

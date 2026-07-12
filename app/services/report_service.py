@@ -5,6 +5,7 @@ from app.services.ml_opportunity_service import assess_location_ml
 
 
 def field_visit_checklist(category: str) -> list[str]:
+    """Return the standard on-the-ground field-check list for a category."""
     return [
         'Visit at morning, midday and evening to see how the foot traffic changes.',
         f'Walk the street and count the {category} shops you can see, including small informal stalls.',
@@ -15,6 +16,7 @@ def field_visit_checklist(category: str) -> list[str]:
 
 
 def build_location_report(db: Session, payload: dict) -> dict:
+    """Assemble a single-location report: scores, strengths, risks, competitors and next steps."""
     category = payload['business_category']
     latitude = float(payload['latitude'])
     longitude = float(payload['longitude'])
@@ -64,6 +66,7 @@ def build_location_report(db: Session, payload: dict) -> dict:
 
 
 def persist_report(db: Session, report: dict, saved_location_id: int | None = None) -> int | None:
+    """Persist a generated report and return its id."""
     try:
         row = db.execute(text("""
             INSERT INTO app.location_reports (title, business_category, latitude, longitude, saved_location_id, report_payload, status)

@@ -14,8 +14,10 @@ class NotificationPreferences(BaseModel):
 
 @router.get('/notifications')
 def notifications(limit: int = Query(30, ge=1, le=100), db: Session = Depends(get_db)) -> dict:
+    """Return the most recent notifications."""
     return {'notifications': list_notifications(db, limit=limit)}
 
 @router.put('/notification-preferences')
 def notification_preferences(payload: NotificationPreferences, db: Session = Depends(get_db)) -> dict:
+    """Update the notification preferences (weekly digest, alert toggles, email)."""
     return {'preferences': upsert_preferences(db, user_id=1, payload=payload.model_dump())}

@@ -8,4 +8,5 @@ router = APIRouter()
 
 @router.get('/i18n')
 def i18n(locale: str = Query('en')) -> dict:
+    """Return the UI translation bundle for a locale."""
     return get_translations(locale)

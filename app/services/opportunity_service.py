@@ -11,6 +11,7 @@ from app.services.geography_service import nearest_landmark
 
 
 def _normalise_row(row: Any, locale: str | None = None) -> dict[str, Any]:
+    """Normalize a raw opportunity-cell DB row into the API shape, localized."""
     data = dict(row)
     # Keep a stable contract for every frontend page.
     data.setdefault("name", data.get("grid_id", "Opportunity zone"))
@@ -81,6 +82,7 @@ def list_opportunity_cells(
 
 
 def summarize_opportunity_map(cells: list[dict[str, Any]]) -> dict[str, Any]:
+    """Summarize a set of cells: total count, zone counts and factor averages."""
     zone_counts = Counter(c.get("zone_key") or c.get("opportunity_type") or "emerging" for c in cells)
     if not cells:
         return {
@@ -92,6 +94,7 @@ def summarize_opportunity_map(cells: list[dict[str, Any]]) -> dict[str, Any]:
             "zone_counts": {},
         }
     def avg(key: str) -> float:
+        """Mean of a numeric field across the cells (0 when empty)."""
         return round(sum(float(c.get(key) or 0) for c in cells) / len(cells), 2)
     return {
         "total_cells": len(cells),

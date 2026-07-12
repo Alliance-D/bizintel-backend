@@ -10,4 +10,5 @@ router = APIRouter()
 
 @router.get("/datasets/catalog")
 def dataset_catalog(limit: int = Query(200, ge=1, le=500), db: Session = Depends(get_db), user: dict = Depends(require_min_role('admin'))) -> dict:
+    """List the ingested source datasets and their metadata (admin only)."""
     return {"datasets": list_datasets(db, limit=limit)}

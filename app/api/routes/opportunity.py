@@ -6,12 +6,15 @@ from app.services.opportunity_service import list_opportunity_cells, summarize_o
 router = APIRouter()
 @router.get('/summary')
 def opportunity_summary(category: str = Query('salon'), district: str | None = None, db: Session = Depends(get_db)) -> dict:
+    """Summarize the opportunity map for a category (optionally one district) plus its top cells."""
     cells = list_opportunity_cells(db, category=category, district=district, limit=50)
     return {'category': category, 'district': district, 'summary': summarize_opportunity_map(cells), 'top_cells': cells[:10]}
 @router.post('/query')
 def query_opportunity_map(payload: OpportunityMapQuery, db: Session = Depends(get_db)) -> dict:
+    """Query opportunity cells by category/district/limit and return them with a summary."""
     cells = list_opportunity_cells(db, category=payload.business_category, district=payload.district, limit=payload.limit)
     return {'mode': payload.mode, 'business_category': payload.business_category, 'district': payload.district, 'cells': cells, 'summary': summarize_opportunity_map(cells)}
 @router.get('/tiles/{z}/{x}/{y}')
 def opportunity_tiles(z: int, x: int, y: int, category: str = Query('salon')) -> dict:
+    """Placeholder XYZ tile endpoint; the map currently loads GeoJSON, not vector tiles."""
     return {'type': 'FeatureCollection', 'features': [], 'meta': {'category': category, 'z': z, 'x': x, 'y': y, 'message': 'Use vector tiles in Phase 5.'}}

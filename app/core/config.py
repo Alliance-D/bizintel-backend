@@ -31,6 +31,7 @@ class Settings(BaseSettings):
         # "No module named 'psycopg2'" at connection time, not at import
         # time, which is why it only shows up once something tries to
         # actually connect. Force the +psycopg dialect explicitly.
+        """Normalize a DATABASE_URL to use the psycopg (v3) SQLAlchemy driver."""
         if value.startswith("postgres://"):
             value = "postgresql://" + value[len("postgres://"):]
         if value.startswith("postgresql://"):
@@ -39,11 +40,13 @@ class Settings(BaseSettings):
 
     @property
     def origins(self) -> list[str]:
+        """Parse the configured CORS origins string into a list."""
         return [origin.strip() for origin in self.allowed_origins.split(",") if origin.strip()]
 
 
 @lru_cache
 def get_settings() -> Settings:
+    """Return the cached application settings singleton."""
     settings = Settings()
     if settings.jwt_secret == INSECURE_DEFAULT_JWT_SECRET:
         if settings.app_env != "development":

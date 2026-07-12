@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 
 def _artifact_root() -> Path:
+    """Return the base directory where model artifacts are stored."""
     return Path(os.getenv("MODEL_ARTIFACT_DIR", "ml/artifacts")).expanduser().resolve()
 
 
@@ -50,6 +51,7 @@ def model_status(db: Session) -> dict[str, Any]:
 
 
 def list_model_versions(db: Session, limit: int = 50) -> list[dict[str, Any]]:
+    """List trained model versions with their metrics, newest first."""
     try:
         rows = db.execute(text("""
             SELECT id, model_name, algorithm, target_name, business_category,
@@ -124,6 +126,7 @@ def list_feature_importance(db: Session, model_version_id: int | None = None, li
 
 @lru_cache(maxsize=8)
 def load_model_artifact(artifact_uri: str) -> Any:
+    """Load a serialized model pipeline from its artifact URI."""
     path = Path(artifact_uri)
     if not path.is_absolute():
         path = _artifact_root() / artifact_uri
@@ -133,6 +136,7 @@ def load_model_artifact(artifact_uri: str) -> Any:
 
 
 def load_feature_schema(schema_uri: str | None) -> dict[str, Any] | None:
+    """Load a model's feature schema JSON, if one is present."""
     if not schema_uri:
         return None
     path = Path(schema_uri)

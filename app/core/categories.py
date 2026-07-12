@@ -104,16 +104,19 @@ CATEGORY_ALIASES: dict[str, str] = {
 
 
 def normalise_category(value: str | None) -> str:
+    """Resolve a free-text name or alias to a canonical business-category key (falls back to pharmacy)."""
     raw = (value or 'pharmacy').strip().lower().replace('&', 'and')
     raw = raw.replace(' ', '_')
     return CATEGORY_ALIASES.get(raw, raw if raw in {c.key for c in BUSINESS_CATEGORIES} else 'pharmacy')
 
 
 def category_map() -> dict[str, BusinessCategory]:
+    """Return the business categories keyed by their canonical key."""
     return {category.key: category for category in BUSINESS_CATEGORIES}
 
 
 def category_payload(lang: str = 'en') -> list[dict[str, Any]]:
+    """Return the business categories as localized dicts for the API."""
     use_rw = lang.lower().startswith('rw') or lang.lower().startswith('kin')
     rows = []
     for category in BUSINESS_CATEGORIES:

@@ -15,6 +15,7 @@ def write_audit_log(
     user_agent: str | None = None,
     metadata: dict | None = None,
 ) -> None:
+    """Insert an audit-log row capturing who did what, from where."""
     db.execute(text('''
         INSERT INTO app.audit_log (
             actor_user_id, actor_role, action, entity_type, entity_id,

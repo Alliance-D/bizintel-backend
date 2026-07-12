@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 
 def analyze_competition(db: Session, latitude: float, longitude: float, business_category: str, radius_meters: int = 1000) -> dict:
+    """Summarize competitor density and nearby complementary businesses around a point."""
     try:
         competitors = db.execute(text("""
             SELECT name, category_key, ST_Distance(geom::geography, ST_SetSRID(ST_MakePoint(:lon,:lat),4326)::geography) AS distance_m,
@@ -23,6 +24,7 @@ def analyze_competition(db: Session, latitude: float, longitude: float, business
 
 
 def _payload(latitude: float, longitude: float, category: str, competitors: list[dict], zone: dict | None) -> dict:
+    """Assemble the competitive-analysis response payload."""
     pressure = zone["competition_pressure"] if zone else min(100, len(competitors) * 10)
     if pressure >= 70:
         diagnosis = "Crowded market"

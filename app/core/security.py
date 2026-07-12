@@ -12,13 +12,16 @@ ROLE_ORDER = {
 
 
 def role_level(role: str) -> int:
+    """Return the numeric privilege level for a role name."""
     return ROLE_ORDER.get(role, 0)
 
 
 def require_roles(*allowed_roles: str) -> Callable:
+    """Build a dependency that allows only the given roles."""
     allowed = set(allowed_roles)
 
     def dependency(user: dict = Depends(current_user)) -> dict:
+        """Assert the current user holds one of the allowed roles."""
         if user.get('role') not in allowed:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Insufficient permissions')
         return user
@@ -27,9 +30,11 @@ def require_roles(*allowed_roles: str) -> Callable:
 
 
 def require_min_role(min_role: str) -> Callable:
+    """Build a dependency that requires at least the given role level."""
     min_level = role_level(min_role)
 
     def dependency(user: dict = Depends(current_user)) -> dict:
+        """Assert the current user meets the minimum role level."""
         if role_level(user.get('role', '')) < min_level:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Insufficient permissions')
         return user

@@ -17,6 +17,7 @@ BG = (251 / 255, 250 / 255, 247 / 255)
 
 
 def _safe_number(value, fallback=0):
+    """Coerce a value to a number, falling back when it is not numeric."""
     try:
         numeric = float(value)
         if numeric != numeric:
@@ -27,6 +28,7 @@ def _safe_number(value, fallback=0):
 
 
 def _label_score(value: float) -> str:
+    """Map a 0-100 score to a short qualitative label."""
     if value >= 78:
         return "Strong"
     if value >= 60:
@@ -35,6 +37,7 @@ def _label_score(value: float) -> str:
 
 
 def _wrap_text(pdf: canvas.Canvas, text: str, x: float, y: float, max_chars: int, leading: float = 12, font: str = "Helvetica", size: int = 9, color=SLATE, max_lines: int | None = None) -> float:
+    """Draw text wrapped to a character width and return the new y position."""
     pdf.setFont(font, size)
     pdf.setFillColorRGB(*color)
     lines = wrap(str(text or ""), width=max_chars) or [""]
@@ -47,6 +50,7 @@ def _wrap_text(pdf: canvas.Canvas, text: str, x: float, y: float, max_chars: int
 
 
 def _section_title(pdf: canvas.Canvas, title: str, x: float, y: float) -> float:
+    """Draw a section title and return the y position below it."""
     pdf.setFillColorRGB(*BRAND)
     pdf.setFont("Helvetica-Bold", 13)
     pdf.drawString(x, y, title)
@@ -54,6 +58,7 @@ def _section_title(pdf: canvas.Canvas, title: str, x: float, y: float) -> float:
 
 
 def _card(pdf: canvas.Canvas, x: float, y: float, w: float, h: float, title: str, value: str, subtitle: str, accent=TEAL):
+    """Draw a titled stat card and return its bottom y position."""
     pdf.setFillColorRGB(1, 1, 1)
     pdf.setStrokeColorRGB(*LINE)
     pdf.roundRect(x, y - h, w, h, 12, fill=1, stroke=1)
@@ -71,6 +76,7 @@ def _card(pdf: canvas.Canvas, x: float, y: float, w: float, h: float, title: str
 
 
 def _bar(pdf: canvas.Canvas, x: float, y: float, label: str, value: float, color=TEAL) -> float:
+    """Draw a labelled horizontal bar for a 0-100 value."""
     safe = max(0, min(100, _safe_number(value)))
     pdf.setFont("Helvetica-Bold", 9)
     pdf.setFillColorRGB(*BRAND)
@@ -85,6 +91,7 @@ def _bar(pdf: canvas.Canvas, x: float, y: float, label: str, value: float, color
 
 
 def _bullet_list(pdf: canvas.Canvas, items: list[str], x: float, y: float, max_chars: int, max_items: int = 6) -> float:
+    """Draw a capped bulleted list and return the y position below it."""
     pdf.setFont("Helvetica", 9)
     pdf.setFillColorRGB(*SLATE)
     for item in (items or [])[:max_items]:
@@ -99,6 +106,7 @@ def _bullet_list(pdf: canvas.Canvas, items: list[str], x: float, y: float, max_c
 
 
 def _draw_header(pdf: canvas.Canvas, title: str, width: float, height: float):
+    """Draw the report's page header."""
     pdf.setFillColorRGB(*BRAND)
     pdf.roundRect(1.4 * cm, height - 2.15 * cm, 34, 34, 9, fill=1, stroke=0)
     pdf.setFillColorRGB(1, 1, 1)
@@ -115,6 +123,7 @@ def _draw_header(pdf: canvas.Canvas, title: str, width: float, height: float):
 
 
 def _draw_footer(pdf: canvas.Canvas, page: int, width: float):
+    """Draw the report's page footer with the page number."""
     pdf.setStrokeColorRGB(*LINE)
     pdf.line(1.4 * cm, 1.45 * cm, width - 1.4 * cm, 1.45 * cm)
     pdf.setFillColorRGB(*SLATE)
@@ -124,6 +133,7 @@ def _draw_footer(pdf: canvas.Canvas, page: int, width: float):
 
 
 def build_pdf_report(report: dict) -> bytes:
+    """Render a location-report dict to PDF bytes."""
     buffer = BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4

@@ -40,15 +40,18 @@ TUTORIAL_STEPS: dict[str, list[dict[str, Any]]] = {
 
 
 def locale_key(locale: str | None) -> str:
+    """Normalize a locale string to a supported key (en/rw)."""
     raw = (locale or 'en').lower()
     return 'rw' if raw.startswith('rw') or raw.startswith('kin') else 'en'
 
 
 def get_translations(locale: str | None = 'en') -> dict[str, Any]:
+    """Return the UI translation bundle for a locale."""
     lang = locale_key(locale)
     return {'locale': lang, 'strings': UI_TRANSLATIONS[lang]}
 
 
 def get_tutorial(locale: str | None = 'en') -> dict[str, Any]:
+    """Return the onboarding tutorial content for a locale."""
     lang = locale_key(locale)
     return {'locale': lang, 'tutorial_key': 'first_visit', 'steps': TUTORIAL_STEPS[lang]}

@@ -18,6 +18,7 @@ router = APIRouter()
 
 
 def _audit(request: Request, db: Session, user: dict, action: str, entity_type: str | None = None, entity_id: str | None = None, metadata: dict | None = None) -> None:
+    """Write an audit-log entry for an admin action and commit it."""
     write_audit_log(
         db, action=action, user=user, entity_type=entity_type, entity_id=entity_id, metadata=metadata,
         request_id=getattr(request.state, 'request_id', None),
@@ -29,6 +30,7 @@ def _audit(request: Request, db: Session, user: dict, action: str, entity_type: 
 
 @router.get('/status')
 def admin_status(db: Session = Depends(get_db), user: dict = Depends(require_min_role('admin'))) -> dict:
+    """Pipeline readiness overview: data, features, predictions, active model and next steps."""
     health = data_health(db)
     model = model_status(db)
     feature_rows = health['checks'].get('grid_category_feature_rows') or 0
@@ -50,16 +52,19 @@ def admin_status(db: Session = Depends(get_db), user: dict = Depends(require_min
 
 @router.get('/data-health')
 def admin_data_health(db: Session = Depends(get_db), user: dict = Depends(require_min_role('admin'))) -> dict:
+    """Return per-table row counts and readiness checks for the data pipeline."""
     return data_health(db)
 
 
 @router.get('/jobs/status')
 def admin_job_status(user: dict = Depends(require_min_role('admin'))) -> dict:
+    """Return the status of the current background job (retrain/rebuild), if any."""
     return job_status()
 
 
 @router.post('/jobs/retrain')
 def admin_trigger_retrain(request: Request, activate: bool = True, db: Session = Depends(get_db), user: dict = Depends(require_min_role('admin'))) -> dict:
+    """Kick off a model retrain-and-score job (409 if one is already running)."""
     result = trigger_retrain(activate=activate)
     if not result["started"]:
         raise HTTPException(status_code=409, detail=result["message"])
@@ -69,6 +74,7 @@ def admin_trigger_retrain(request: Request, activate: bool = True, db: Session =
 
 @router.post('/jobs/rebuild-features')
 def admin_trigger_grid_rebuild(request: Request, db: Session = Depends(get_db), user: dict = Depends(require_min_role('admin'))) -> dict:
+    """Kick off a grid feature-table rebuild job (409 if one is already running)."""
     result = trigger_grid_rebuild()
     if not result["started"]:
         raise HTTPException(status_code=409, detail=result["message"])
@@ -78,6 +84,7 @@ def admin_trigger_grid_rebuild(request: Request, db: Session = Depends(get_db), 
 
 @router.post('/models/{model_version_id}/activate')
 def admin_activate_model(model_version_id: int, request: Request, db: Session = Depends(get_db), user: dict = Depends(require_min_role('super_admin'))) -> dict:
+    """Activate a specific trained model version (super-admin only)."""
     result = activate_model_version(db, model_version_id)
     if not result["activated"]:
         raise HTTPException(status_code=409, detail=result["message"])

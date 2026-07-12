@@ -76,6 +76,7 @@ MAX_HISTORY_MESSAGES = 20
 
 
 def _client() -> genai.Client | None:
+    """Construct a Gemini client, or None when no API key is configured."""
     settings = get_settings()
     if not settings.gemini_api_key:
         return None
@@ -83,6 +84,7 @@ def _client() -> genai.Client | None:
 
 
 def is_available() -> bool:
+    """True when the AI advisor is configured on this deployment."""
     return _client() is not None
 
 

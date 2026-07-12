@@ -62,6 +62,7 @@ app.add_middleware(
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Return a JSON 500 for any unhandled exception instead of leaking a stack trace."""
     request_id = getattr(request.state, "request_id", None)
     logger.exception("Unhandled error on %s %s (request_id=%s)", request.method, request.url.path, request_id)
     return JSONResponse(
@@ -72,6 +73,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 @app.get("/")
 def root() -> dict:
+    """Root endpoint returning a small service banner."""
     return {
         "name": settings.app_name,
         "status": "running",

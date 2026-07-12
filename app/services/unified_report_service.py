@@ -30,12 +30,14 @@ BUSINESS_CATEGORIES = ["pharmacy", "restaurant", "cafe", "grocery", "salon", "fi
 
 
 def _user_context(payload: dict[str, Any]) -> dict[str, str] | None:
+    """Extract optional user-stated budget/notes context from the request payload."""
     budget = payload.get("budget")
     notes = payload.get("notes")
     return {"budget": budget, "notes": notes} if (budget or notes) else None
 
 
 def build_point_entry(db: Session, category: str, point: dict[str, Any], locale: str | None, user_context: dict[str, str] | None) -> dict[str, Any]:
+    """Build a full report entry for one exact coordinate."""
     latitude = float(point["latitude"])
     longitude = float(point["longitude"])
     assessment = assess_location_ml(db, latitude, longitude, category, 500, locale=locale)
@@ -59,6 +61,7 @@ def build_point_entry(db: Session, category: str, point: dict[str, Any], locale:
 
 
 def build_area_entry(db: Session, category: str, area: dict[str, Any], locale: str | None) -> dict[str, Any]:
+    """Build an area entry: the ranked shortlist of the strongest cells in an area."""
     district = area["district"]
     sector = area.get("sector")
     cell = area.get("cell")
@@ -137,6 +140,7 @@ def build_comparison_from_entries(point_entries: list[dict[str, Any]], business_
 
 
 def _num(v: Any) -> float:
+    """Coerce a value to float, defaulting to 0.0."""
     try:
         return float(v)
     except (TypeError, ValueError):
@@ -167,6 +171,7 @@ def _comparison_summary(winner: dict[str, Any], runner: dict[str, Any], category
 
 
 def build_unified_report(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
+    """Build the unified report: compare mode for two or more locations, else single/area."""
     category = normalise_category(payload["business_category"])
     locale = payload.get("locale")
     user_context = _user_context(payload)
@@ -200,6 +205,7 @@ def build_unified_report(db: Session, payload: dict[str, Any]) -> dict[str, Any]
 
 
 def _synthesize_title(report: dict[str, Any]) -> str:
+    """Derive a human-readable title for a report from its entries."""
     category = report["business_category"].replace("_", " ").title()
     entries = report["entries"]
     if len(entries) == 1:
@@ -208,6 +214,7 @@ def _synthesize_title(report: dict[str, Any]) -> str:
 
 
 def persist_unified_report(db: Session, report: dict[str, Any]) -> int | None:
+    """Persist a unified report and return its id."""
     try:
         first_point = next((e for e in report["entries"] if e["mode"] == "point"), None)
         row = db.execute(text("""
@@ -229,6 +236,7 @@ def persist_unified_report(db: Session, report: dict[str, Any]) -> int | None:
 
 
 def get_unified_report(db: Session, report_id: int) -> dict[str, Any] | None:
+    """Fetch a persisted unified report by id."""
     try:
         row = db.execute(text("SELECT report_payload FROM app.location_reports WHERE id = :id"), {"id": report_id}).first()
         return row[0] if row else None
@@ -238,6 +246,7 @@ def get_unified_report(db: Session, report_id: int) -> dict[str, Any] | None:
 
 
 def expand_candidate(db: Session, report_id: int, entry_index: int, grid_id: str, latitude: float, longitude: float, label: str | None) -> dict[str, Any] | None:
+    """Expand one area candidate cell into its own full point report."""
     report = get_unified_report(db, report_id)
     if report is None or entry_index < 0 or entry_index >= len(report["entries"]):
         return None

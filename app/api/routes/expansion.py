@@ -12,6 +12,7 @@ router = APIRouter()
 
 @router.post('/expansion-planner')
 def expansion_planner(payload: dict, db: Session = Depends(get_db)) -> dict:
+    """Suggest expansion cells for a category, spaced from the existing locations given."""
     category = normalise_category(payload.get('business_category') or payload.get('category') or 'pharmacy')
     existing_locations = payload.get('existing_locations') or []
     limit = int(payload.get('limit') or 8)

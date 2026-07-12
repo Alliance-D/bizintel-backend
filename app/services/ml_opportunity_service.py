@@ -11,6 +11,7 @@ from app.services.geography_service import nearest_landmark
 
 
 def list_category_profiles(db: Session) -> dict[str, Any]:
+    """Return summary profiles for each business category across the scored grid."""
     try:
         rows = db.execute(text("""
             SELECT category_key, display_name, description, demand_weight, access_weight,
@@ -40,6 +41,9 @@ def list_category_profiles(db: Session) -> dict[str, Any]:
 
 
 def assess_location_ml(db: Session, latitude: float, longitude: float, business_category: str, radius_meters: int = 500, locale: str | None = None) -> dict[str, Any]:
+    """Assess a point: read the nearest scored grid cell's cached prediction and
+    recount competitors live at the exact coordinate, returning the combined
+    payload (overall gap, factors, signals, competitors, landmark, narrative)."""
     try:
         prediction = db.execute(text("SELECT * FROM ml.get_ml_prediction_near(:lon, :lat, :category)"), {
             "lon": longitude, "lat": latitude, "category": business_category
@@ -73,6 +77,7 @@ def assess_location_ml(db: Session, latitude: float, longitude: float, business_
 
 
 def _competitors(db: Session, longitude: float, latitude: float, category: str, radius_meters: int) -> dict[str, int]:
+    """Count same-category competitors within 300m/500m/1000m of an exact point."""
     try:
         row = db.execute(text("""
             SELECT
@@ -165,6 +170,7 @@ def _grid_signals(db: Session, grid_id: str | None, category: str) -> dict[str, 
 
 
 def _activity_level(score: float, locale: str | None = None) -> str:
+    """Bucket a commercial-activity score into High/Medium/Low, localized."""
     rw = _is_kinyarwanda(locale)
     if score >= 60:
         return "Byinshi" if rw else "High"
@@ -174,6 +180,8 @@ def _activity_level(score: float, locale: str | None = None) -> str:
 
 
 def _build_signals(raw: dict[str, Any], commercial_score: float, expected_count: float | None, observed_count: float, locale: str | None = None) -> dict[str, Any]:
+    """Assemble the plain-language signal block shown on the report (people nearby,
+    activity level, anchors, distances, expected/observed counts) from raw features."""
     density = raw.get("population_density_1000m")
     return {
         # population density is people/km2; within a ~1km radius that's ~pi km2,
@@ -196,6 +204,9 @@ def _build_signals(raw: dict[str, Any], commercial_score: float, expected_count:
 
 
 def _prediction_payload(prediction: dict[str, Any], latitude: float, longitude: float, category: str, competitors: dict[str, int], source: str = "ml_prediction_cache", locale: str | None = None, signals_raw: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Shape a cached grid prediction plus live competitor counts into the API
+    payload, swapping the live observed count in so the shown gap reflects the
+    exact clicked point."""
     gap_score = round(float(prediction.get("opportunity_score") or 0), 2)  # gap percentile within category (0-100), see train_and_score_opportunity_model.py
     confidence = round(float(prediction.get("confidence_score") or 0), 2)
     competition = round(float(prediction.get("competition_pressure") or 0), 2)
@@ -257,6 +268,7 @@ def _prediction_payload(prediction: dict[str, Any], latitude: float, longitude: 
 
 
 def list_top_opportunity_zones(db: Session, business_category: str, limit: int = 25) -> dict[str, Any]:
+    """Return the top-ranked opportunity cells for a category."""
     try:
         rows = db.execute(text("""
             SELECT grid_id, business_category, opportunity_score, opportunity_rank, opportunity_type,
@@ -274,6 +286,7 @@ def list_top_opportunity_zones(db: Session, business_category: str, limit: int =
 
 
 def get_ml_engine_status(db: Session) -> dict[str, Any]:
+    """Report ML readiness: prediction-cache sizes, active categories and coverage."""
     try:
         counts = db.execute(text("""
             SELECT
@@ -299,6 +312,7 @@ def get_ml_engine_status(db: Session) -> dict[str, Any]:
 
 
 def _is_kinyarwanda(locale: str | None) -> bool:
+    """True when the locale string denotes Kinyarwanda."""
     return (locale or "").lower().startswith(("rw", "kin"))
 
 
@@ -313,6 +327,7 @@ _OPPORTUNITY_TYPE_RW = {
 
 
 def _localize_opportunity_type(opportunity_type: str, locale: str | None) -> str:
+    """Translate an opportunity-type label to Kinyarwanda when the locale asks for it."""
     if not _is_kinyarwanda(locale):
         return opportunity_type
     return _OPPORTUNITY_TYPE_RW.get(opportunity_type, opportunity_type)

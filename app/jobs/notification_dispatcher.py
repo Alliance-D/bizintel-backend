@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 
 def build_weekly_digest_candidates(db: Session) -> list[dict]:
+    """Collect the users eligible for the weekly/monthly opportunity digest."""
     rows = db.execute(text('''
         SELECT user_id, notification_frequency, default_business_category
         FROM app.user_preferences

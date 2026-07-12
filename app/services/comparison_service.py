@@ -6,6 +6,7 @@ from app.services.ml_opportunity_service import assess_location_ml
 
 
 def compare_locations(db: Session, business_category: str, locations: list[dict], locale: str | None = None) -> dict:
+    """Assess several locations and return them ranked head-to-head with a summary."""
     rw = (locale or "").lower().startswith(("rw", "kin"))
     results = []
     for item in locations:

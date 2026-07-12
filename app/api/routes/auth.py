@@ -12,6 +12,7 @@ router = APIRouter()
 @router.post('/register')
 @limiter.limit('5/minute')
 def register(request: Request, payload: RegisterRequest, db: Session = Depends(get_db)) -> dict:
+    """Create a user account and return an access token (rate limited)."""
     try:
         user = create_user(db, payload.model_dump())
     except Exception as exc:
@@ -23,6 +24,7 @@ def register(request: Request, payload: RegisterRequest, db: Session = Depends(g
 @router.post('/login')
 @limiter.limit('10/minute')
 def login(request: Request, payload: LoginRequest, db: Session = Depends(get_db)) -> dict:
+    """Authenticate a user, audit-log admin sign-ins, and return an access token."""
     user = authenticate_user(db, payload.email, payload.password)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid email or password')
@@ -34,6 +36,7 @@ def login(request: Request, payload: LoginRequest, db: Session = Depends(get_db)
 
 @router.get('/me')
 def me(user: dict = Depends(current_user)) -> dict:
+    """Return the currently authenticated user."""
     return {'user': user}
 
 @router.post('/refresh')

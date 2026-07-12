@@ -7,6 +7,7 @@ router = APIRouter()
 
 @router.get("/health")
 def health() -> dict:
+    """Liveness probe: reports healthy when the database is reachable, degraded otherwise."""
     db_ok = False
     try:
         with engine.connect() as conn:

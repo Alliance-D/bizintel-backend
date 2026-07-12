@@ -37,6 +37,7 @@ def plan_expansion(
     limit: int = 8,
     min_distance_from_existing_m: int = DEFAULT_MIN_DISTANCE_FROM_EXISTING_M,
 ) -> dict[str, Any]:
+    """Recommend expansion cells for a category, spaced from the existing locations given."""
     try:
         candidates = db.execute(text("""
             SELECT grid_id, opportunity_score, demand_score, accessibility_score,

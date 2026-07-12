@@ -10,6 +10,7 @@ from __future__ import annotations
 
 
 def _is_rw(locale: str | None) -> bool:
+    """True when the locale denotes Kinyarwanda."""
     return (locale or "").lower().startswith(("rw", "kin"))
 
 
@@ -20,7 +21,9 @@ def location_label(
     village: str | None = None,  # accepted for backward compat, intentionally unused
     locale: str | None = None,
 ) -> str:
+    """Build a human-readable cell-and-sector label, de-duplicating repeated parts."""
     def norm(x: str | None) -> str:
+        """Trim and lower-case a name part for comparison."""
         return (x or "").strip()
 
     d, s, c = norm(district), norm(sector), norm(cell)

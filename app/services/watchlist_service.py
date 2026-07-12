@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 
 def create_saved_location(db: Session, payload: dict) -> dict:
+    """Persist a saved location and return it."""
     row = db.execute(text("""
         INSERT INTO app.saved_locations (label, business_category, latitude, longitude, geom, notes, updated_at)
         VALUES (:label, :category, :lat, :lon, ST_SetSRID(ST_MakePoint(:lon, :lat), 4326), :notes, now())
@@ -19,6 +20,7 @@ def create_saved_location(db: Session, payload: dict) -> dict:
 
 
 def list_saved_locations(db: Session, limit: int = 50) -> list[dict]:
+    """List saved locations, newest first."""
     try:
         rows = db.execute(text("SELECT * FROM app.saved_location_summary ORDER BY created_at DESC LIMIT :limit"), {'limit': limit}).mappings().all()
         return [dict(r) for r in rows]
@@ -28,6 +30,7 @@ def list_saved_locations(db: Session, limit: int = 50) -> list[dict]:
 
 
 def list_alerts(db: Session, limit: int = 30) -> list[dict]:
+    """List generated alerts."""
     try:
         rows = db.execute(text("""
             SELECT id, alert_type, severity, title, message, is_read, created_at, saved_location_id
@@ -43,6 +46,7 @@ def list_alerts(db: Session, limit: int = 30) -> list[dict]:
 
 
 def delete_saved_location(db: Session, location_id: int) -> dict | None:
+    """Delete a saved location by id, returning it or None."""
     existing = db.execute(text("""
         SELECT id, label, business_category, latitude, longitude
         FROM app.saved_locations

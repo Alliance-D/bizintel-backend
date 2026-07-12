@@ -14,6 +14,7 @@ router = APIRouter()
 
 @router.get('/advisor/status')
 def advisor_status() -> dict:
+    """Report whether the AI advisor (Gemini) is configured on this deployment."""
     return {"available": is_available()}
 
 
@@ -48,6 +49,11 @@ def _clean_user_context(raw: object) -> dict[str, str] | None:
 @router.post('/advisor')
 @limiter.limit('30/minute')
 def advisor(request: Request, payload: dict, db: Session = Depends(get_db)) -> dict:
+    """Assess a point, then return AI narrative advice for it (rate limited).
+
+    Accepts optional prior ``messages`` for follow-up questions and optional
+    user-stated ``user_context`` used only to personalize the narrative's tone.
+    """
     category = normalise_category(payload.get('business_category') or payload.get('category') or 'pharmacy')
     latitude = float(payload.get('latitude'))
     longitude = float(payload.get('longitude'))

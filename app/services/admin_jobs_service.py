@@ -23,11 +23,13 @@ LOG_DIR = Path("ml/artifacts/job_logs")
 
 
 def job_status() -> dict[str, Any]:
+    """Return the status of the current or most recent background job."""
     with _lock:
         return dict(_state)
 
 
 def _run(job_name: str, command: list[str], log_path: Path) -> None:
+    """Run a job subprocess, streaming its output to a log file and updating job state."""
     with log_path.open("w", encoding="utf-8") as log_file:
         process = subprocess.run(command, stdout=log_file, stderr=subprocess.STDOUT)
     with _lock:
@@ -35,6 +37,7 @@ def _run(job_name: str, command: list[str], log_path: Path) -> None:
 
 
 def _start_background_job(job_name: str, command: list[str]) -> dict[str, Any]:
+    """Start a background job thread unless one is already running."""
     with _lock:
         if _state["running"]:
             return {"started": False, "message": f"A job ({_state['job_name']}) is already running.", "status": dict(_state)}
@@ -48,6 +51,7 @@ def _start_background_job(job_name: str, command: list[str]) -> dict[str, Any]:
 
 
 def trigger_retrain(activate: bool = True) -> dict[str, Any]:
+    """Start the model retrain-and-score job."""
     command = [sys.executable, "scripts/train_and_score_opportunity_model.py"]
     if activate:
         command.append("--activate")
@@ -55,6 +59,7 @@ def trigger_retrain(activate: bool = True) -> dict[str, Any]:
 
 
 def trigger_grid_rebuild() -> dict[str, Any]:
+    """Start the grid feature-rebuild job."""
     command = [sys.executable, "scripts/build_grid_category_features.py", "--truncate"]
     return _start_background_job("rebuild_grid_features", command)
 

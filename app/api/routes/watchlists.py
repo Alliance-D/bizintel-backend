@@ -8,10 +8,12 @@ router = APIRouter()
 
 @router.get('/saved-locations')
 def saved_locations(limit: int = Query(50, ge=1, le=200), db: Session = Depends(get_db)) -> dict:
+    """List saved locations."""
     return {'locations': list_saved_locations(db, limit=limit), 'source': 'database'}
 
 @router.post('/saved-locations')
 def save_location(payload: SavedLocationCreate, db: Session = Depends(get_db)) -> dict:
+    """Persist a saved location."""
     try:
         return {'location': create_saved_location(db, payload.model_dump()), 'source': 'database'}
     except Exception as exc:
@@ -21,6 +23,7 @@ def save_location(payload: SavedLocationCreate, db: Session = Depends(get_db)) -
 
 @router.delete('/saved-locations/{location_id}')
 def remove_saved_location(location_id: int, db: Session = Depends(get_db)) -> dict:
+    """Delete a saved location by id (404 if it does not exist)."""
     try:
         deleted = delete_saved_location(db, location_id)
     except Exception as exc:
@@ -32,8 +35,10 @@ def remove_saved_location(location_id: int, db: Session = Depends(get_db)) -> di
 
 @router.get('/alerts')
 def alerts(limit: int = Query(30, ge=1, le=100), db: Session = Depends(get_db)) -> dict:
+    """List generated alerts."""
     return {'alerts': list_alerts(db, limit=limit), 'source': 'database'}
 
 @router.post('/watchlists')
 def create_watchlist(payload: WatchlistCreate) -> dict:
+    """Not implemented yet: returns 501. Save individual locations instead."""
     raise HTTPException(status_code=501, detail='Watchlist creation is not connected yet. Save locations from the map first.')

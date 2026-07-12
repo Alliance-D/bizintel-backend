@@ -14,6 +14,7 @@ def audit_log(
     db: Session = Depends(get_db),
     user: dict = Depends(require_min_role('admin')),
 ) -> dict:
+    """Most recent audit-log events, newest first (admin only)."""
     rows = db.execute(text('''
         SELECT id, actor_user_id, actor_role, action, entity_type, entity_id,
                request_id, metadata, created_at

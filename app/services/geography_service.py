@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 
 def list_districts(db: Session) -> list[str]:
+    """List the distinct districts present in the analysis grid."""
     try:
         rows = db.execute(text("""
             SELECT DISTINCT district FROM geo.analysis_grid
@@ -26,6 +27,7 @@ def list_districts(db: Session) -> list[str]:
 
 
 def list_sectors(db: Session, district: str) -> list[str]:
+    """List the sectors within a district."""
     try:
         rows = db.execute(text("""
             SELECT DISTINCT sector FROM geo.analysis_grid
@@ -39,6 +41,7 @@ def list_sectors(db: Session, district: str) -> list[str]:
 
 
 def list_cells(db: Session, district: str, sector: str) -> list[str]:
+    """List the cells within a district and sector."""
     try:
         rows = db.execute(text("""
             SELECT DISTINCT cell FROM geo.analysis_grid
@@ -80,6 +83,7 @@ def nearest_landmark(db: Session, latitude: float, longitude: float, locale: str
 
 
 def get_village_boundary(db: Session, latitude: float, longitude: float) -> dict[str, Any] | None:
+    """Return the administrative area and its boundary polygon at a point."""
     try:
         row = db.execute(text("""
             SELECT province, district, sector, cell, village, ST_AsGeoJSON(geom) AS geometry

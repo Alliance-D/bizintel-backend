@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 
 def create_validation_point(db: Session, payload: dict, user_id: int | None = None) -> dict:
+    """Persist a field-validation observation submitted from the ground."""
     try:
         row = db.execute(text("""
             INSERT INTO field.validation_points (
@@ -31,6 +32,7 @@ def create_validation_point(db: Session, payload: dict, user_id: int | None = No
 
 
 def list_validation_points(db: Session, limit: int = 100) -> list[dict]:
+    """List recorded field-validation observations."""
     try:
         rows = db.execute(text("""
             SELECT id, business_category, latitude, longitude, observed_activity,

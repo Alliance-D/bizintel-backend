@@ -43,9 +43,12 @@ import argparse
 import json
 import math
 import os
+import sys
 import warnings
 from datetime import datetime, timezone
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import joblib
 import numpy as np
@@ -65,6 +68,8 @@ from sklearn.neighbors import KNeighborsRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sqlalchemy import create_engine, text
+
+from app.services.gap_semantics import classify_gap_percentile
 
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -178,17 +183,9 @@ def evaluate(y_true, y_pred) -> dict:
     }
 
 
-def gap_percentile_classification(gap_percentile: float) -> tuple[str, str, str]:
-    """gap_percentile is this row's rank (0-100) among gap values within its
-    own business_category - relative, not an absolute magnitude, so it's
-    comparable across categories with very different typical counts."""
-    if gap_percentile >= 80:
-        return "Underserved", "underserved", "low"
-    if gap_percentile >= 55:
-        return "Room to grow", "emerging", "medium"
-    if gap_percentile >= 25:
-        return "Balanced", "balanced", "medium"
-    return "Saturated", "saturated", "high"
+# Canonical gap-band rule lives in app.services.gap_semantics so the scoring
+# script, the API and the tests share one definition.
+gap_percentile_classification = classify_gap_percentile
 
 
 def narrative_explanation(row: pd.Series, expected: float, observed: float, gap_percentile: float) -> dict:

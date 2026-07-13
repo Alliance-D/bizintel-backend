@@ -1,11 +1,13 @@
 # BizIntel backend
 
 FastAPI + PostgreSQL/PostGIS backend for a business-location intelligence
-platform in Kigali. It scores candidate locations on a transparent
-demand/accessibility/commercial-activity/competition/welfare composite,
-refined by a trained ML model with a genuine spatial holdout and real SHAP
-explanations — it is **not** a business-success, survival, or revenue
-predictor, and no part of the product claims otherwise.
+platform in Kigali. For a given business category it predicts how many
+businesses an area's fundamentals (population, income, transport, nearby
+anchors) would support, compares that with how many are actually observed
+nearby, and reports the **gap** — underserved vs. saturated — using a trained
+ML model with a genuine spatial holdout and real SHAP explanations. It is
+**not** a business-success, survival, or revenue predictor, and no part of the
+product claims otherwise.
 
 ## Stack
 

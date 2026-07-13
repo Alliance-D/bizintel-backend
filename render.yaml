@@ -27,17 +27,7 @@ services:
       - key: ALLOWED_ORIGINS
         value: https://bizintel-frontend.onrender.com
 
-  # Testing runtime: node (no Docker at all) to isolate whether the 502s
-  # are Docker-specific to this account/service, or something else
-  # entirely. The one thing never actually retested since the real build
-  # blocker (a corrupted package-lock.json, unrelated to Docker) was fixed:
-  # every runtime: node attempt before now happened while that lockfile bug
-  # was still live, so it never got a fair test. runtime: image (a
-  # pre-built GHCR image) and runtime: docker (building here) have both
-  # produced a container that starts cleanly every time, with Render's
-  # dashboard reporting it live, yet 502s or Not Found on every single
-  # request from outside. If this also fails the same way, it rules out
-  # Docker as the variable entirely.
+  # Frontend: native Node build (Next.js), no Docker.
   - type: web
     name: bizintel-frontend
     runtime: node

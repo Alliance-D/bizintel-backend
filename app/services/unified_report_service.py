@@ -11,10 +11,16 @@ otherwise burn 3x the Gemini calls for candidates nobody looks at.
 from __future__ import annotations
 
 import json
+import secrets
 from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
+# Reports are shared by URL with no per-user auth, so they are addressed by a
+# random token (not the sequential id) and pruned after a retention window so
+# the table doesn't grow without bound.
+REPORT_RETENTION_DAYS = 30
 
 from app.core.categories import normalise_category
 from app.services.ai_advisor_service import generate_advice
@@ -213,15 +219,31 @@ def _synthesize_title(report: dict[str, Any]) -> str:
     return f"{category} report - {len(entries)} locations"
 
 
-def persist_unified_report(db: Session, report: dict[str, Any]) -> int | None:
-    """Persist a unified report and return its id."""
+def _purge_expired_reports(db: Session) -> None:
+    """Delete reports past the retention window. Best-effort and self-contained
+    (its own transaction) so a purge failure never blocks saving a new report."""
+    try:
+        db.execute(
+            text("DELETE FROM app.location_reports WHERE created_at < now() - make_interval(days => :days)"),
+            {"days": REPORT_RETENTION_DAYS},
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+def persist_unified_report(db: Session, report: dict[str, Any]) -> str | None:
+    """Persist a unified report and return its non-guessable public token."""
+    _purge_expired_reports(db)
     try:
         first_point = next((e for e in report["entries"] if e["mode"] == "point"), None)
+        token = secrets.token_urlsafe(9)
         row = db.execute(text("""
-            INSERT INTO app.location_reports (title, business_category, latitude, longitude, report_payload, status)
-            VALUES (:title, :category, :lat, :lon, CAST(:payload AS JSONB), 'ready')
-            RETURNING id
+            INSERT INTO app.location_reports (public_token, title, business_category, latitude, longitude, report_payload, status)
+            VALUES (:token, :title, :category, :lat, :lon, CAST(:payload AS JSONB), 'ready')
+            RETURNING public_token
         """), {
+            "token": token,
             "title": _synthesize_title(report),
             "category": report["business_category"],
             "lat": first_point["latitude"] if first_point else None,
@@ -229,25 +251,25 @@ def persist_unified_report(db: Session, report: dict[str, Any]) -> int | None:
             "payload": json.dumps(report),
         }).first()
         db.commit()
-        return int(row[0]) if row else None
+        return str(row[0]) if row else None
     except Exception:
         db.rollback()
         return None
 
 
-def get_unified_report(db: Session, report_id: int) -> dict[str, Any] | None:
-    """Fetch a persisted unified report by id."""
+def get_unified_report(db: Session, report_token: str) -> dict[str, Any] | None:
+    """Fetch a persisted unified report by its public token."""
     try:
-        row = db.execute(text("SELECT report_payload FROM app.location_reports WHERE id = :id"), {"id": report_id}).first()
+        row = db.execute(text("SELECT report_payload FROM app.location_reports WHERE public_token = :token"), {"token": report_token}).first()
         return row[0] if row else None
     except Exception:
         db.rollback()
         return None
 
 
-def expand_candidate(db: Session, report_id: int, entry_index: int, grid_id: str, latitude: float, longitude: float, label: str | None) -> dict[str, Any] | None:
+def expand_candidate(db: Session, report_token: str, entry_index: int, grid_id: str, latitude: float, longitude: float, label: str | None) -> dict[str, Any] | None:
     """Expand one area candidate cell into its own full point report."""
-    report = get_unified_report(db, report_id)
+    report = get_unified_report(db, report_token)
     if report is None or entry_index < 0 or entry_index >= len(report["entries"]):
         return None
     entry = report["entries"][entry_index]
@@ -261,7 +283,7 @@ def expand_candidate(db: Session, report_id: int, entry_index: int, grid_id: str
     entry["expanded_candidate"] = point_entry
 
     try:
-        db.execute(text("UPDATE app.location_reports SET report_payload = CAST(:payload AS JSONB) WHERE id = :id"), {"payload": json.dumps(report), "id": report_id})
+        db.execute(text("UPDATE app.location_reports SET report_payload = CAST(:payload AS JSONB) WHERE public_token = :token"), {"payload": json.dumps(report), "token": report_token})
         db.commit()
     except Exception:
         db.rollback()

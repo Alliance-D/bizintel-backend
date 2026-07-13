@@ -358,16 +358,19 @@ CREATE TABLE IF NOT EXISTS app.alerts (
 
 CREATE TABLE IF NOT EXISTS app.location_reports (
   id BIGSERIAL PRIMARY KEY,
+  public_token TEXT,
   user_id BIGINT,
   saved_location_id BIGINT,
   title TEXT NOT NULL,
   business_category TEXT NOT NULL,
-  latitude DOUBLE PRECISION NOT NULL,
-  longitude DOUBLE PRECISION NOT NULL,
+  latitude DOUBLE PRECISION,
+  longitude DOUBLE PRECISION,
   report_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
   status TEXT NOT NULL DEFAULT 'ready',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_location_reports_public_token ON app.location_reports (public_token);
+CREATE INDEX IF NOT EXISTS idx_location_reports_created_at ON app.location_reports (created_at);
 
 CREATE TABLE IF NOT EXISTS app.notification_preferences (
   user_id BIGINT PRIMARY KEY,

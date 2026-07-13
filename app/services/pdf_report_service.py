@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from io import BytesIO
 from textwrap import wrap
 from reportlab.lib.pagesizes import A4
@@ -233,5 +234,149 @@ def build_pdf_report(report: dict) -> bytes:
     _wrap_text(pdf, "This report supports decision making. It is not a guarantee of revenue, profit, rent availability, regulatory approval or business success. Use it to shortlist, compare and prepare field checks before committing", margin + 14, y - 42, 95, leading=12, size=9, max_lines=4)
 
     _draw_footer(pdf, 2, width)
+    pdf.save()
+    return buffer.getvalue()
+
+
+# --- Unified report (the /start -> /report/[token] flow) -------------------
+
+def _gap_verdict(expected: float, observed: float) -> str:
+    """Verdict from absolute expected-vs-observed counts - the same bands the
+    web report uses, so the PDF and the page never disagree."""
+    room = expected - observed
+    if expected < 0.75 and abs(room) < 1:
+        return "Thin demand"
+    if room <= -0.75:
+        return "Saturated"
+    if room >= 1.5:
+        return "Underserved"
+    if room >= 0.5:
+        return "Room to grow"
+    return "Balanced"
+
+
+def _primary_entry(report: dict) -> dict:
+    """The point entry a single-location PDF is built from (first point, else first)."""
+    entries = report.get("entries") or []
+    return next((e for e in entries if e.get("mode") == "point"), entries[0] if entries else {})
+
+
+def _plural(word: str) -> str:
+    """English plural of a category word (pharmacy -> pharmacies)."""
+    w = word.strip()
+    if w.endswith("y") and len(w) > 1 and w[-2].lower() not in "aeiou":
+        return w[:-1] + "ies"
+    return w if w.endswith("s") else w + "s"
+
+
+def build_unified_pdf(report: dict) -> bytes:
+    """Render a unified report (the /start flow) to branded PDF bytes, speaking
+    the demand-vs-supply gap language rather than the retired composite score."""
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    margin = 1.4 * cm
+
+    category = str(report.get("business_category") or "business").replace("_", " ")
+    cats = _plural(category)
+    entry = _primary_entry(report)
+    assessment = entry.get("assessment") or {}
+    overall = assessment.get("overall") or {}
+    signals = assessment.get("signals") or {}
+    label = entry.get("label") or assessment.get("landmark") or assessment.get("location_label") or "Kigali"
+
+    expected = _safe_number(overall.get("expected_count"))
+    observed = _safe_number(overall.get("observed_count"))
+    room = expected - observed
+    verdict = _gap_verdict(expected, observed)
+    confidence = _safe_number(overall.get("confidence_score"))
+    narrative = ((entry.get("narrative") or {}).get("advice")) or ""
+
+    _draw_header(pdf, "BizIntel", width, height)
+    y = height - 3.15 * cm
+    pdf.setFillColorRGB(*BRAND)
+    pdf.setFont("Helvetica-Bold", 22)
+    pdf.drawString(margin, y, f"{category.title()} location report"[:52])
+    y -= 18
+    pdf.setFillColorRGB(*SLATE)
+    pdf.setFont("Helvetica", 10)
+    pdf.drawString(margin, y, str(label)[:70])
+    pdf.drawRightString(width - margin, y, datetime.now(timezone.utc).strftime("%d %b %Y"))
+    y -= 26
+
+    # Verdict banner + plain-language summary
+    pdf.setFillColorRGB(*MINT)
+    pdf.roundRect(margin, y - 58, width - 2 * margin, 58, 12, fill=1, stroke=0)
+    pdf.setFillColorRGB(*BRAND)
+    pdf.setFont("Helvetica-Bold", 12)
+    pdf.drawString(margin + 12, y - 20, verdict.upper())
+    summary = f"The area looks able to support about {expected:.0f} {cats}; {observed:.0f} are open within a kilometre."
+    _wrap_text(pdf, summary, margin + 12, y - 38, 92, leading=11, size=9)
+    y -= 78
+
+    # Capacity cards: open now / room-or-over / can support
+    card_w = (width - 2 * margin - 18) / 3
+    over = observed > expected
+    _card(pdf, margin, y, card_w, 78, "Open now", f"{observed:.0f}", f"{cats} within 1 km", TEAL)
+    if over:
+        _card(pdf, margin + card_w + 9, y, card_w, 78, "Over capacity", f"+{observed - expected:.0f}", "more than expected", ROSE)
+    else:
+        _card(pdf, margin + card_w + 9, y, card_w, 78, "Room", f"+{max(0.0, room):.0f}", "could be supported", TEAL)
+    _card(pdf, margin + (card_w + 9) * 2, y, card_w, 78, "Can support", f"{max(expected, 0):.0f}", "from area fundamentals", AMBER if over else TEAL)
+    y -= 104
+
+    # Signals
+    y = _section_title(pdf, "The signals behind it", margin, y)
+    rows = [
+        ("People nearby (within 1 km)", f"{_safe_number(signals.get('people_within_1km')):,.0f}"),
+        ("Commercial activity", str(signals.get("commercial_activity_level") or "-")),
+        (f"{cats.title()} already open", f"{observed:.0f}"),
+        ("Foot-traffic anchors (within 1 km)", f"{_safe_number(signals.get('anchor_count_1000m')):,.0f}"),
+        ("Model estimate", f"~ {expected:.1f} {cats}"),
+    ]
+    pdf.setFont("Helvetica", 9)
+    for name, value in rows:
+        pdf.setFillColorRGB(*SLATE)
+        pdf.setFont("Helvetica", 9)
+        pdf.drawString(margin, y, name)
+        pdf.setFillColorRGB(*BRAND)
+        pdf.setFont("Helvetica-Bold", 9)
+        pdf.drawRightString(margin + 250, y, value)
+        pdf.setStrokeColorRGB(*LINE)
+        pdf.line(margin, y - 6, margin + 250, y - 6)
+        y -= 18
+
+    # Why this location (AI narrative), on the right column
+    x2 = width / 2 + 0.4 * cm
+    y_right = y + 5 * 18 + 18
+    y_right = _section_title(pdf, "Why this location", x2, y_right)
+    narrative_text = narrative or "A written explanation was not available when this report was generated."
+    narr_bottom = _wrap_text(pdf, narrative_text, x2, y_right, 46, leading=11, size=9, max_lines=14)
+
+    # Start the full-width section below whichever column ran lower.
+    y = min(y, narr_bottom) - 14
+    y = _section_title(pdf, "Before you decide", margin, y)
+    y = _bullet_list(pdf, [
+        "Visit at morning, midday and evening to see how the foot traffic changes.",
+        f"Walk the street and count the {cats} you can see, including small informal stalls.",
+        "Check how easily customers reach the spot on foot from the nearest road and bus stop.",
+        "Ask nearby shopkeepers and residents what they still travel elsewhere to buy.",
+    ], margin, y, 92, 4)
+
+    y -= 6
+    pdf.setFillColorRGB(*SLATE)
+    pdf.setFont("Helvetica", 8.5)
+    pdf.drawString(margin, y, f"Confidence: {confidence:.0f}%   ·   Based on mapped {cats} within 1 km   ·   Informal shops uncounted")
+    y -= 22
+
+    pdf.setFillColorRGB(1, 1, 1)
+    pdf.setStrokeColorRGB(*LINE)
+    pdf.roundRect(margin, y - 66, width - 2 * margin, 66, 12, fill=1, stroke=1)
+    pdf.setFillColorRGB(*BRAND)
+    pdf.setFont("Helvetica-Bold", 11)
+    pdf.drawString(margin + 12, y - 20, "How to use this report")
+    _wrap_text(pdf, "This measures the gap between the demand an area's fundamentals predict and the businesses observed there. It is a decision signal for shortlisting and field validation, not a prediction of revenue, profit or business success.", margin + 12, y - 38, 95, leading=11, size=8.6, max_lines=3)
+
+    _draw_footer(pdf, 1, width)
     pdf.save()
     return buffer.getvalue()

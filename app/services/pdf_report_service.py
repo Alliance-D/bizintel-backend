@@ -255,12 +255,6 @@ def _gap_verdict(expected: float, observed: float) -> str:
     return "Balanced"
 
 
-def _primary_entry(report: dict) -> dict:
-    """The point entry a single-location PDF is built from (first point, else first)."""
-    entries = report.get("entries") or []
-    return next((e for e in entries if e.get("mode") == "point"), entries[0] if entries else {})
-
-
 def _plural(word: str) -> str:
     """English plural of a category word (pharmacy -> pharmacies)."""
     w = word.strip()
@@ -270,8 +264,23 @@ def _plural(word: str) -> str:
 
 
 def build_unified_pdf(report: dict) -> bytes:
-    """Render a unified report (the /start flow) to branded PDF bytes, speaking
-    the demand-vs-supply gap language rather than the retired composite score."""
+    """Render a unified report to a branded PDF, dispatching by report mode so
+    single-point, area (ranked shortlist) and compare (head-to-head) reports all
+    render real content rather than an empty single-location template."""
+    if report.get("comparison"):
+        return _build_compare_pdf(report)
+    entries = report.get("entries") or []
+    point = next((e for e in entries if e.get("mode") == "point"), None)
+    if point is not None:
+        return _build_point_pdf(report, point)
+    area = next((e for e in entries if e.get("mode") == "area"), None)
+    if area is not None:
+        return _build_area_pdf(report, area)
+    return _build_point_pdf(report, {})
+
+
+def _build_point_pdf(report: dict, entry: dict) -> bytes:
+    """Branded single-location page: verdict, capacity, signals, narrative, checklist."""
     buffer = BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
@@ -279,7 +288,6 @@ def build_unified_pdf(report: dict) -> bytes:
 
     category = str(report.get("business_category") or "business").replace("_", " ")
     cats = _plural(category)
-    entry = _primary_entry(report)
     assessment = entry.get("assessment") or {}
     overall = assessment.get("overall") or {}
     signals = assessment.get("signals") or {}
@@ -377,6 +385,155 @@ def build_unified_pdf(report: dict) -> bytes:
     pdf.drawString(margin + 12, y - 20, "How to use this report")
     _wrap_text(pdf, "This measures the gap between the demand an area's fundamentals predict and the businesses observed there. It is a decision signal for shortlisting and field validation, not a prediction of revenue, profit or business success.", margin + 12, y - 38, 95, leading=11, size=8.6, max_lines=3)
 
+    _draw_footer(pdf, 1, width)
+    pdf.save()
+    return buffer.getvalue()
+
+
+def _candidate_counts(c: dict) -> tuple[float, float]:
+    """Expected/observed counts for an area candidate cell."""
+    gd = (c.get("explanation") or {}).get("gap_details") or {}
+    return _safe_number(gd.get("expected_count")), _safe_number(gd.get("observed_count"))
+
+
+def _use_note(pdf, margin, width, y):
+    """Draw the shared 'how to use this report' disclaimer box."""
+    pdf.setFillColorRGB(1, 1, 1)
+    pdf.setStrokeColorRGB(*LINE)
+    pdf.roundRect(margin, y - 66, width - 2 * margin, 66, 12, fill=1, stroke=1)
+    pdf.setFillColorRGB(*BRAND)
+    pdf.setFont("Helvetica-Bold", 11)
+    pdf.drawString(margin + 12, y - 20, "How to use this report")
+    _wrap_text(pdf, "This measures the gap between the demand an area's fundamentals predict and the businesses observed there. It is a decision signal for shortlisting and field validation, not a prediction of revenue, profit or business success.", margin + 12, y - 38, 95, leading=11, size=8.6, max_lines=3)
+
+
+def _build_area_pdf(report: dict, entry: dict) -> bytes:
+    """Branded page for an area report: the ranked shortlist of strongest spots."""
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    margin = 1.4 * cm
+    category = str(report.get("business_category") or "business").replace("_", " ")
+    cats = _plural(category)
+    area_label = entry.get("label") or "your area"
+    candidates = entry.get("top_candidates") or []
+
+    _draw_header(pdf, "BizIntel", width, height)
+    y = height - 3.15 * cm
+    pdf.setFillColorRGB(*BRAND)
+    pdf.setFont("Helvetica-Bold", 22)
+    pdf.drawString(margin, y, f"{category.title()} location report"[:52])
+    y -= 18
+    pdf.setFillColorRGB(*SLATE)
+    pdf.setFont("Helvetica", 10)
+    pdf.drawString(margin, y, f"The strongest spots in {area_label}")
+    pdf.drawRightString(width - margin, y, datetime.now(timezone.utc).strftime("%d %b %Y"))
+    y -= 24
+    y = _wrap_text(pdf, f"Ranked by how much room each spot has for a {category}. Open the online report to explore any of them in full.", margin, y, 95, leading=12, size=9)
+    y -= 8
+
+    if not candidates:
+        _wrap_text(pdf, "No candidate spots were found for this area.", margin, y, 90, size=10)
+    for i, c in enumerate(candidates[:3], start=1):
+        expected, observed = _candidate_counts(c)
+        verdict = _gap_verdict(expected, observed)
+        name = c.get("landmark") or c.get("location_label") or c.get("name") or "Unnamed spot"
+        pdf.setFillColorRGB(1, 1, 1)
+        pdf.setStrokeColorRGB(*LINE)
+        pdf.roundRect(margin, y - 62, width - 2 * margin, 62, 12, fill=1, stroke=1)
+        pdf.setFillColorRGB(*BRAND)
+        pdf.setFont("Helvetica-Bold", 13)
+        pdf.drawString(margin + 14, y - 22, f"#{i}  {str(name)[:52]}")
+        pdf.setFillColorRGB(*(ROSE if verdict == "Saturated" else TEAL))
+        pdf.setFont("Helvetica-Bold", 9)
+        pdf.drawRightString(width - margin - 14, y - 22, verdict.upper())
+        pdf.setFillColorRGB(*SLATE)
+        pdf.setFont("Helvetica", 9)
+        sub = c.get("location_label")
+        if sub and sub != name:
+            pdf.drawString(margin + 14, y - 38, str(sub)[:60])
+        pdf.drawString(margin + 14, y - 52, f"Area can support about {expected:.0f} {cats}  ·  {observed:.0f} open within 1 km")
+        y -= 74
+
+    y -= 4
+    _use_note(pdf, margin, width, y)
+    _draw_footer(pdf, 1, width)
+    pdf.save()
+    return buffer.getvalue()
+
+
+def _build_compare_pdf(report: dict) -> bytes:
+    """Branded page for a compare report: head-to-head across the chosen spots."""
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    margin = 1.4 * cm
+    category = str(report.get("business_category") or "business").replace("_", " ")
+    cats = _plural(category)
+    comparison = report.get("comparison") or {}
+    locations = comparison.get("locations") or []
+    winner = comparison.get("best_location") or {}
+    winner_label = winner.get("label")
+
+    _draw_header(pdf, "BizIntel", width, height)
+    y = height - 3.15 * cm
+    pdf.setFillColorRGB(*BRAND)
+    pdf.setFont("Helvetica-Bold", 22)
+    pdf.drawString(margin, y, f"{category.title()} comparison"[:52])
+    y -= 18
+    pdf.setFillColorRGB(*SLATE)
+    pdf.setFont("Helvetica", 10)
+    pdf.drawString(margin, y, "Head to head")
+    pdf.drawRightString(width - margin, y, datetime.now(timezone.utc).strftime("%d %b %Y"))
+    y -= 26
+
+    if comparison.get("summary"):
+        pdf.setFillColorRGB(*MINT)
+        pdf.roundRect(margin, y - 52, width - 2 * margin, 52, 12, fill=1, stroke=0)
+        pdf.setFillColorRGB(*BRAND)
+        pdf.setFont("Helvetica-Bold", 11)
+        pdf.drawString(margin + 12, y - 18, "Stronger opening")
+        _wrap_text(pdf, str(comparison["summary"]), margin + 12, y - 34, 92, leading=11, size=9, max_lines=2)
+        y -= 70
+
+    # Table header
+    pdf.setFillColorRGB(*SLATE)
+    pdf.setFont("Helvetica-Bold", 8)
+    cols_x = [margin, margin + 230, margin + 310, margin + 390]
+    pdf.drawString(cols_x[0], y, "LOCATION")
+    pdf.drawString(cols_x[1], y, "CAN SUPPORT")
+    pdf.drawString(cols_x[2], y, "OPEN NOW")
+    pdf.drawString(cols_x[3], y, "VERDICT")
+    y -= 6
+    pdf.setStrokeColorRGB(*LINE)
+    pdf.line(margin, y, width - margin, y)
+    y -= 16
+
+    for row in locations:
+        expected = _safe_number(row.get("expected_count"))
+        observed = _safe_number(row.get("observed_count"))
+        verdict = _gap_verdict(expected, observed)
+        name = row.get("landmark") or row.get("label") or "Unnamed"
+        is_winner = row.get("label") == winner_label
+        pdf.setFillColorRGB(*(BRAND if is_winner else SLATE))
+        pdf.setFont("Helvetica-Bold" if is_winner else "Helvetica", 9.5)
+        marker = "* " if is_winner else "  "
+        pdf.drawString(cols_x[0], y, f"{marker}{str(name)[:34]}")
+        pdf.setFont("Helvetica", 9.5)
+        pdf.setFillColorRGB(*SLATE)
+        pdf.drawString(cols_x[1], y, f"{expected:.0f} {cats}")
+        pdf.drawString(cols_x[2], y, f"{observed:.0f}")
+        pdf.setFillColorRGB(*(ROSE if verdict == "Saturated" else TEAL))
+        pdf.setFont("Helvetica-Bold", 8.5)
+        pdf.drawString(cols_x[3], y, verdict.upper())
+        y -= 18
+
+    y -= 4
+    pdf.setFillColorRGB(*SLATE)
+    pdf.setFont("Helvetica", 8)
+    pdf.drawString(margin, y, "* strongest opening. Each spot is the best cell inside the area you chose.")
+    y -= 22
+    _use_note(pdf, margin, width, y)
     _draw_footer(pdf, 1, width)
     pdf.save()
     return buffer.getvalue()

@@ -104,8 +104,12 @@ NUMERIC_FEATURES = [
     "complementary_poi_count_500m", "commercial_poi_count_500m", "demand_generator_count_1000m",
     "market_distance_m", "school_count_1000m", "health_facility_count_1000m",
     "bus_stop_count_500m", "nearest_bus_stop_m",
+    # Per-anchor nearest distances and road-network context (added after the
+    # OSM roads/intersections were ingested).
+    "nearest_bus_station_m", "nearest_school_m", "nearest_health_m", "nearest_finance_m",
+    "distance_to_main_road_m", "road_density_500m", "intersection_density_500m",
 ]
-CATEGORICAL_FEATURES = ["business_category", "district", "sector"]
+CATEGORICAL_FEATURES = ["business_category", "district", "sector", "road_class_nearest"]
 ALL_FEATURES = NUMERIC_FEATURES + CATEGORICAL_FEATURES
 
 # Loaded alongside the features for narrative/context use only - never fed
@@ -137,6 +141,7 @@ def engine():
 def load_features(eng) -> pd.DataFrame:
     query = f"""
       SELECT id, grid_id, business_category, district, sector, cell,
+             road_class_nearest,
              ST_Y(centroid) AS latitude, ST_X(centroid) AS longitude,
              {", ".join(NUMERIC_FEATURES)},
              {", ".join(CONTEXT_COLUMNS)},

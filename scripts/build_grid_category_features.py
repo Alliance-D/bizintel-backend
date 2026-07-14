@@ -50,6 +50,25 @@ def main():
         ON sector_w.area_level = 'sector' AND lower(sector_w.sector) = lower(g.sector) AND lower(sector_w.district) = lower(g.district)
       LEFT JOIN curated.population_welfare_features district_w
         ON district_w.area_level = 'district' AND lower(district_w.district) = lower(g.district)
+    ), grid_infra AS (
+      -- Road and per-anchor features depend only on the grid cell, not the
+      -- category, so they are computed once per cell here (not 5x in feature_rows).
+      SELECT g.grid_id,
+        COALESCE((SELECT MIN(ST_Distance(o.geom::geography, g.centroid::geography)) FROM curated.osm_poi_features o WHERE o.category_key = 'transport' AND o.tags->>'amenity' = 'bus_station'), 5000) AS nearest_bus_station_m,
+        COALESCE((SELECT MIN(ST_Distance(o.geom::geography, g.centroid::geography)) FROM curated.osm_poi_features o WHERE o.category_key = 'school'), 5000) AS nearest_school_m,
+        COALESCE((SELECT MIN(ST_Distance(o.geom::geography, g.centroid::geography)) FROM curated.osm_poi_features o WHERE o.category_key = 'health'), 5000) AS nearest_health_m,
+        COALESCE((SELECT MIN(ST_Distance(o.geom::geography, g.centroid::geography)) FROM curated.osm_poi_features o WHERE o.category_key = 'finance'), 5000) AS nearest_finance_m,
+        COALESCE((SELECT ST_Distance(r.geom::geography, g.centroid::geography) FROM curated.osm_road_features r WHERE r.is_main ORDER BY r.geom <-> g.centroid LIMIT 1), 5000) AS distance_to_main_road_m,
+        COALESCE((SELECT SUM(ST_Length(ST_Intersection(r.geom, ST_Buffer(g.centroid::geography, 500)::geometry)::geography)) FROM curated.osm_road_features r WHERE r.is_street AND ST_DWithin(r.geom::geography, g.centroid::geography, 500)), 0) AS road_density_500m,
+        COALESCE((SELECT COUNT(*) FROM curated.osm_road_intersections i WHERE ST_DWithin(i.geom::geography, g.centroid::geography, 500)), 0) AS intersection_density_500m,
+        COALESCE((SELECT CASE
+            WHEN r.highway IN ('motorway','trunk','primary','secondary','tertiary','motorway_link','trunk_link','primary_link','secondary_link','tertiary_link') THEN 'main'
+            WHEN r.highway IN ('residential','living_street','unclassified','road') THEN 'residential'
+            WHEN r.highway = 'service' THEN 'service'
+            WHEN r.highway IN ('path','footway','steps','track','cycleway','bridleway','pedestrian') THEN 'path'
+            ELSE 'other' END
+          FROM curated.osm_road_features r ORDER BY r.geom <-> g.centroid LIMIT 1), 'other') AS road_class_nearest
+      FROM geo.analysis_grid g
     ), feature_rows AS (
       SELECT
         b.*,
@@ -69,9 +88,12 @@ def main():
         COALESCE((SELECT COUNT(*) FROM curated.osm_poi_features o WHERE o.category_key = 'health' AND ST_DWithin(o.geom::geography, b.centroid::geography, 1000)), 0) AS health_facility_count_1000m,
         COALESCE((SELECT COUNT(*) FROM curated.osm_poi_features o WHERE o.category_key = 'transport' AND ST_DWithin(o.geom::geography, b.centroid::geography, 500)), 0) AS bus_stop_count_500m,
         COALESCE((SELECT MIN(ST_Distance(o.geom::geography, b.centroid::geography)) FROM curated.osm_poi_features o WHERE o.category_key = 'transport'), 2500) AS nearest_bus_stop_m,
-        COALESCE((SELECT SUM(e.establishment_count) FROM curated.establishment_area_features e WHERE e.business_category = b.business_category AND (e.district IS NULL OR b.district IS NULL OR lower(e.district) = lower(b.district)) AND (e.sector IS NULL OR b.sector IS NULL OR lower(e.sector) = lower(b.sector))), 0) AS establishment_category_count_area
+        COALESCE((SELECT SUM(e.establishment_count) FROM curated.establishment_area_features e WHERE e.business_category = b.business_category AND (e.district IS NULL OR b.district IS NULL OR lower(e.district) = lower(b.district)) AND (e.sector IS NULL OR b.sector IS NULL OR lower(e.sector) = lower(b.sector))), 0) AS establishment_category_count_area,
+        gi.nearest_bus_station_m, gi.nearest_school_m, gi.nearest_health_m, gi.nearest_finance_m,
+        gi.distance_to_main_road_m, gi.road_density_500m, gi.intersection_density_500m, gi.road_class_nearest
       FROM base b
       JOIN grid_welfare gw ON gw.grid_id = b.grid_id
+      JOIN grid_infra gi ON gi.grid_id = b.grid_id
     ), scored AS (
       SELECT fr.*,
         curated.score_from_count(population_density_500m, NULLIF((SELECT percentile_cont(0.95) WITHIN GROUP (ORDER BY population_density_500m) FROM feature_rows), 0)) AS demand_raw,
@@ -99,6 +121,8 @@ def main():
       competitor_count_300m, competitor_count_500m, competitor_count_1000m, nearest_competitor_m,
       complementary_poi_count_500m, commercial_poi_count_500m, demand_generator_count_1000m,
       market_distance_m, school_count_1000m, health_facility_count_1000m, bus_stop_count_500m, nearest_bus_stop_m,
+      nearest_bus_station_m, nearest_school_m, nearest_health_m, nearest_finance_m,
+      distance_to_main_road_m, road_density_500m, intersection_density_500m, road_class_nearest,
       establishment_category_count_area, establishment_density_area,
       demand_score, accessibility_score, commercial_activity_score, competition_pressure,
       welfare_score, opportunity_gap_score, confidence_score,
@@ -111,6 +135,8 @@ def main():
       competitor_count_300m, competitor_count_500m, competitor_count_1000m, nearest_competitor_m,
       complementary_poi_count_500m, commercial_poi_count_500m, demand_generator_count_1000m,
       market_distance_m, school_count_1000m, health_facility_count_1000m, bus_stop_count_500m, nearest_bus_stop_m,
+      nearest_bus_station_m, nearest_school_m, nearest_health_m, nearest_finance_m,
+      distance_to_main_road_m, road_density_500m, intersection_density_500m, road_class_nearest,
       establishment_category_count_area, 0,
       demand_raw, access_raw, activity_raw, competition_raw,
       welfare_proxy,
@@ -144,6 +170,14 @@ def main():
       demand_generator_count_1000m = EXCLUDED.demand_generator_count_1000m,
       bus_stop_count_500m = EXCLUDED.bus_stop_count_500m,
       nearest_bus_stop_m = EXCLUDED.nearest_bus_stop_m,
+      nearest_bus_station_m = EXCLUDED.nearest_bus_station_m,
+      nearest_school_m = EXCLUDED.nearest_school_m,
+      nearest_health_m = EXCLUDED.nearest_health_m,
+      nearest_finance_m = EXCLUDED.nearest_finance_m,
+      distance_to_main_road_m = EXCLUDED.distance_to_main_road_m,
+      road_density_500m = EXCLUDED.road_density_500m,
+      intersection_density_500m = EXCLUDED.intersection_density_500m,
+      road_class_nearest = EXCLUDED.road_class_nearest,
       demand_score = EXCLUDED.demand_score,
       accessibility_score = EXCLUDED.accessibility_score,
       commercial_activity_score = EXCLUDED.commercial_activity_score,
@@ -158,6 +192,18 @@ def main():
       updated_at = now();
     """)
     with eng.begin() as conn:
+        # Idempotent: bring an existing table up to date with the road/anchor columns.
+        conn.execute(text("""
+            ALTER TABLE ml.grid_category_features
+              ADD COLUMN IF NOT EXISTS nearest_bus_station_m DOUBLE PRECISION,
+              ADD COLUMN IF NOT EXISTS nearest_school_m DOUBLE PRECISION,
+              ADD COLUMN IF NOT EXISTS nearest_health_m DOUBLE PRECISION,
+              ADD COLUMN IF NOT EXISTS nearest_finance_m DOUBLE PRECISION,
+              ADD COLUMN IF NOT EXISTS distance_to_main_road_m DOUBLE PRECISION,
+              ADD COLUMN IF NOT EXISTS road_density_500m DOUBLE PRECISION DEFAULT 0,
+              ADD COLUMN IF NOT EXISTS intersection_density_500m INTEGER DEFAULT 0,
+              ADD COLUMN IF NOT EXISTS road_class_nearest TEXT
+        """))
         if args.truncate:
             conn.execute(text("TRUNCATE ml.grid_category_features RESTART IDENTITY"))
         conn.execute(sql)

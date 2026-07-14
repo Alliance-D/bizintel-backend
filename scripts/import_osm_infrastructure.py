@@ -45,6 +45,9 @@ CREATE TABLE IF NOT EXISTS curated.osm_road_features (
 );
 CREATE INDEX IF NOT EXISTS idx_osm_road_features_geom ON curated.osm_road_features USING GIST (geom);
 CREATE INDEX IF NOT EXISTS idx_osm_road_features_main ON curated.osm_road_features (is_main) WHERE is_main;
+-- Functional geography index: ST_DWithin(geom::geography, ...) casts the column,
+-- so it needs an index on that exact expression, or every query seq-scans.
+CREATE INDEX IF NOT EXISTS idx_osm_road_features_geog ON curated.osm_road_features USING GIST ((geom::geography)) WHERE is_street;
 
 CREATE TABLE IF NOT EXISTS curated.osm_landuse (
   id BIGSERIAL PRIMARY KEY,
@@ -59,6 +62,7 @@ CREATE TABLE IF NOT EXISTS curated.osm_road_intersections (
   geom geometry(Point, 4326)
 );
 CREATE INDEX IF NOT EXISTS idx_osm_road_intersections_geom ON curated.osm_road_intersections USING GIST (geom);
+CREATE INDEX IF NOT EXISTS idx_osm_road_intersections_geog ON curated.osm_road_intersections USING GIST ((geom::geography));
 """
 
 

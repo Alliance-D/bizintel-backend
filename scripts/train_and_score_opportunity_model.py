@@ -54,6 +54,7 @@ import joblib
 import numpy as np
 import pandas as pd
 import shap
+from sklearn.base import clone
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import (
     ExtraTreesRegressor,
@@ -121,6 +122,9 @@ CONTEXT_COLUMNS = [
 
 TARGET = "observed_count"
 SPLIT_GROUP_COLUMN = "sector"
+# Number of repeated grouped holdouts used to estimate each model's error with a
+# mean and spread, rather than a single fragile split.
+N_CV_REPEATS = 20
 
 
 def engine():
@@ -164,23 +168,58 @@ def candidate_models() -> dict:
     return models
 
 
-def spatial_split(df: pd.DataFrame):
-    """Group-based holdout by sector: the model is validated on sectors it never trained on."""
-    groups = df[SPLIT_GROUP_COLUMN]
-    splitter = GroupShuffleSplit(n_splits=1, test_size=0.22, random_state=42)
-    train_idx, test_idx = next(splitter.split(df, df[TARGET], groups=groups))
-    train_df, test_df = df.iloc[train_idx].copy(), df.iloc[test_idx].copy()
-    overlap = set(train_df[SPLIT_GROUP_COLUMN]) & set(test_df[SPLIT_GROUP_COLUMN])
-    assert not overlap, f"Spatial holdout leaked sectors across the split: {overlap}"
-    return train_df, test_df
-
-
 def evaluate(y_true, y_pred) -> dict:
     return {
         "mae": round(float(mean_absolute_error(y_true, y_pred)), 4),
         "rmse": round(float(math.sqrt(mean_squared_error(y_true, y_pred))), 4),
         "r2": round(float(r2_score(y_true, y_pred)), 4),
     }
+
+
+def cross_validate_models(df: pd.DataFrame, models: dict, n_repeats: int = N_CV_REPEATS) -> list[dict]:
+    """Repeated grouped holdout by sector: refit every model on many random
+    sector splits and report the distribution (mean +/- std) of MAE/RMSE/R2, so
+    the headline numbers carry a spread rather than resting on one fragile split.
+
+    Returns one record per model with the aggregated metrics and the per-fold
+    values, sorted by mean MAE (the selection metric: robust to the target's
+    skew and zero-inflation, where a few high-count cells would dominate RMSE).
+    """
+    X, y, groups = df[ALL_FEATURES], df[TARGET].astype(float), df[SPLIT_GROUP_COLUMN]
+    splitter = GroupShuffleSplit(n_splits=n_repeats, test_size=0.22, random_state=42)
+    folds = list(splitter.split(X, y, groups))
+
+    per_model: dict[str, dict[str, list[float]]] = {name: {"mae": [], "rmse": [], "r2": []} for name in models}
+    errors: dict[str, str] = {}
+    for train_idx, test_idx in folds:
+        X_tr, X_te = X.iloc[train_idx], X.iloc[test_idx]
+        y_tr, y_te = y.iloc[train_idx], y.iloc[test_idx]
+        for name, model in models.items():
+            if name in errors:
+                continue
+            try:
+                pipe = build_pipeline(clone(model))
+                pipe.fit(X_tr, y_tr)
+                m = evaluate(y_te, np.clip(pipe.predict(X_te), 0, None))
+                per_model[name]["mae"].append(m["mae"])
+                per_model[name]["rmse"].append(m["rmse"])
+                per_model[name]["r2"].append(m["r2"])
+            except Exception as exc:  # a whole model failing (e.g. optional dep) shouldn't abort the run
+                errors[name] = str(exc)
+
+    results: list[dict] = []
+    for name in models:
+        if name in errors or not per_model[name]["mae"]:
+            results.append({"algorithm": name, "status": "failed", "error": errors.get(name, "no folds")})
+            continue
+        agg = {}
+        for metric in ("mae", "rmse", "r2"):
+            vals = per_model[name][metric]
+            agg[f"{metric}_mean"] = round(float(np.mean(vals)), 4)
+            agg[f"{metric}_std"] = round(float(np.std(vals)), 4)
+        results.append({"algorithm": name, "status": "ok", "folds": len(per_model[name]["mae"]), "metrics": agg, "per_fold": per_model[name]})
+    results.sort(key=lambda r: r["metrics"]["mae_mean"] if r["status"] == "ok" else float("inf"))
+    return results
 
 
 # Canonical gap-band rule lives in app.services.gap_semantics so the scoring
@@ -247,59 +286,57 @@ def main():
     print(f"Target ({TARGET}) distribution: min={df[TARGET].min():.0f} max={df[TARGET].max():.0f} "
           f"mean={df[TARGET].mean():.2f} zeros={(df[TARGET] == 0).mean():.1%}\n")
 
-    train_df, test_df = spatial_split(df)
-    X_train, y_train = train_df[ALL_FEATURES], train_df[TARGET].astype(float)
-    X_test, y_test = test_df[ALL_FEATURES], test_df[TARGET].astype(float)
+    models = candidate_models()
+    n_sectors = df[SPLIT_GROUP_COLUMN].nunique()
+    print(f"Repeated grouped holdout: {N_CV_REPEATS} random splits, each trained on ~78% of the "
+          f"{n_sectors} sectors and validated on the unseen ~22%\n")
+    cv_results = cross_validate_models(df, models)
+    for r in cv_results:
+        if r["status"] == "ok":
+            m = r["metrics"]
+            print(f"  {r['algorithm']:24s} MAE={m['mae_mean']:.3f}+/-{m['mae_std']:.3f}  "
+                  f"RMSE={m['rmse_mean']:.3f}+/-{m['rmse_std']:.3f}  R2={m['r2_mean']:.3f}+/-{m['r2_std']:.3f}")
+        else:
+            print(f"  {r['algorithm']:24s} failed: {r.get('error')}")
 
-    results = []
-    fitted = {}
-    print(f"Training on {len(train_df):,} rows ({train_df[SPLIT_GROUP_COLUMN].nunique()} sectors), "
-          f"validating on {len(test_df):,} rows ({test_df[SPLIT_GROUP_COLUMN].nunique()} unseen sectors)\n")
-    for name, model in candidate_models().items():
-        try:
-            pipe = build_pipeline(model)
-            pipe.fit(X_train, y_train)
-            pred = np.clip(pipe.predict(X_test), 0, None)
-            metrics = evaluate(y_test, pred)
-            results.append({"algorithm": name, "metrics": metrics, "status": "ok"})
-            fitted[name] = pipe
-            print(f"  {name:24s} MAE={metrics['mae']:6.2f}  RMSE={metrics['rmse']:6.2f}  R2={metrics['r2']:6.3f}")
-        except Exception as exc:
-            results.append({"algorithm": name, "metrics": {}, "status": "failed", "error": str(exc)})
-            print(f"  {name:24s} failed: {exc}")
-
-    successful = [r for r in results if r["status"] == "ok"]
+    successful = [r for r in cv_results if r["status"] == "ok"]
     if not successful:
         raise SystemExit("No candidate model trained successfully.")
-    best = sorted(successful, key=lambda r: r["metrics"]["mae"])[0]
+    best = successful[0]  # cross_validate_models sorts by mean MAE
     best_name = best["algorithm"]
-    model = fitted[best_name]
-    print(f"\nBest model: {best_name} (MAE={best['metrics']['mae']}, R2={best['metrics']['r2']})")
-    if best["metrics"]["r2"] > 0.9:
-        print("NOTE: R2 above 0.9 for a genuine observed-count target would be surprising - "
+    bm = best["metrics"]
+    print(f"\nBest model by mean MAE: {best_name} "
+          f"(MAE={bm['mae_mean']}+/-{bm['mae_std']}, R2={bm['r2_mean']}+/-{bm['r2_std']} over {best['folds']} splits)")
+    if bm["r2_mean"] > 0.9:
+        print("NOTE: mean R2 above 0.9 for a genuine observed-count target would be surprising - "
               "double check NUMERIC_FEATURES doesn't still contain something that leaks the target.")
+
+    # Refit the winner on all rows for the deployed scorer - standard practice
+    # after CV-based selection: the CV above is the generalization estimate, and
+    # the final model uses all available data to score the grid.
+    model = build_pipeline(clone(models[best_name]))
+    model.fit(df[ALL_FEATURES], df[TARGET].astype(float))
 
     # ---- SHAP explanations for the winning model (tree-based models only;
     # KNeighborsRegressor and other non-tree models fall back gracefully) ----
     shap_summary = None
-    explainer = None
-    transformed_feature_names = None
     underlying_model = model.named_steps["model"]
     if hasattr(underlying_model, "feature_importances_") or type(underlying_model).__name__ in {
         "RandomForestRegressor", "ExtraTreesRegressor", "GradientBoostingRegressor",
         "HistGradientBoostingRegressor", "LGBMRegressor", "XGBRegressor",
     }:
         try:
-            X_test_transformed = model.named_steps["preprocess"].transform(X_test)
+            sample = df[ALL_FEATURES].sample(min(2000, len(df)), random_state=42)
+            sample_transformed = model.named_steps["preprocess"].transform(sample)
             transformed_feature_names = list(model.named_steps["preprocess"].get_feature_names_out())
             explainer = shap.TreeExplainer(underlying_model)
-            shap_values = explainer.shap_values(X_test_transformed)
+            shap_values = explainer.shap_values(sample_transformed)
             mean_abs_shap = np.abs(shap_values).mean(axis=0)
             shap_summary = sorted(
                 [{"feature": n.split("__", 1)[-1], "mean_abs_shap": float(v)} for n, v in zip(transformed_feature_names, mean_abs_shap)],
                 key=lambda r: r["mean_abs_shap"], reverse=True,
             )[:20]
-            print("\nTop SHAP feature contributions (validation set):")
+            print("\nTop SHAP feature contributions (sample of scored cells):")
             for row in shap_summary[:8]:
                 print(f"  {row['feature']:30s} {row['mean_abs_shap']:.3f}")
         except Exception as exc:
@@ -312,16 +349,16 @@ def main():
     artifact_path = artifact_dir / f"{best_name}_gap_model.joblib"
     joblib.dump({"pipeline": model, "numeric_features": NUMERIC_FEATURES, "categorical_features": CATEGORICAL_FEATURES, "target": TARGET}, artifact_path)
 
+    split_strategy = f"repeated_group_shuffle_split_by_{SPLIT_GROUP_COLUMN}_x{N_CV_REPEATS}"
     comparison_path = artifact_dir / f"model_comparison_{timestamp}.json"
     comparison_path.write_text(json.dumps({
         "target": TARGET,
-        "split_strategy": f"group_shuffle_split_by_{SPLIT_GROUP_COLUMN}",
-        "training_rows": int(len(train_df)),
-        "training_sectors": int(train_df[SPLIT_GROUP_COLUMN].nunique()),
-        "validation_rows": int(len(test_df)),
-        "validation_sectors": int(test_df[SPLIT_GROUP_COLUMN].nunique()),
+        "split_strategy": split_strategy,
+        "cv_repeats": N_CV_REPEATS,
+        "total_sectors": int(df[SPLIT_GROUP_COLUMN].nunique()),
+        "total_rows": int(len(df)),
         "best_model": best_name,
-        "results": results,
+        "results": cv_results,
         "shap_top_features": shap_summary,
     }, indent=2), encoding="utf-8")
     print(f"\nWrote model comparison: {comparison_path}")
@@ -347,7 +384,7 @@ def main():
             "target": TARGET,
             "algorithm": best_name,
             "artifact_path": artifact_path.as_posix(),
-            "metrics": json.dumps({"best": best, "all_candidates": results, "split_strategy": f"group_shuffle_split_by_{SPLIT_GROUP_COLUMN}", "shap_top_features": shap_summary}),
+            "metrics": json.dumps({"best": best, "all_candidates": cv_results, "split_strategy": split_strategy, "shap_top_features": shap_summary}),
             "features": ALL_FEATURES,
             "active": bool(args.activate),
         }).scalar_one()

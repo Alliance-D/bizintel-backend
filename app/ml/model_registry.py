@@ -41,7 +41,9 @@ def model_status(db: Session) -> dict[str, Any]:
         active_model = dict(active)
         best_metrics = (active_model.get("metrics") or {}).get("best", {}).get("metrics", {})
         active_model["primary_metric"] = "mae"
-        active_model["primary_metric_value"] = best_metrics.get("mae")
+        # Prefer the cross-validated mean; fall back to the old single-split key.
+        active_model["primary_metric_value"] = best_metrics.get("mae_mean", best_metrics.get("mae"))
+        active_model["primary_metric_std"] = best_metrics.get("mae_std")
 
     return {
         "registry_ready": True,
@@ -67,7 +69,9 @@ def list_model_versions(db: Session, limit: int = 50) -> list[dict[str, Any]]:
         row = dict(r)
         best = (row.get("metrics") or {}).get("best", {})
         row["primary_metric"] = "mae"
-        row["primary_metric_value"] = best.get("metrics", {}).get("mae")
+        best_metrics = best.get("metrics", {})
+        row["primary_metric_value"] = best_metrics.get("mae_mean", best_metrics.get("mae"))
+        row["primary_metric_std"] = best_metrics.get("mae_std")
         versions.append(row)
     return versions
 

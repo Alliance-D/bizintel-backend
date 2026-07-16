@@ -167,13 +167,29 @@ def main() -> None:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+        from matplotlib.patches import Patch
         colors = {"seed": "#0E7A62", "model": "#B08033", "split": "#B9543A"}
-        c = [colors[k] for k in res["kind"]]
-        fig, ax = plt.subplots(1, 3, figsize=(13, 4))
-        for a, col, title in zip(ax, ["gap_spearman", "underserved_overlap", "viability_spearman"],
-                                 ["Gap ranking vs baseline", "Underserved overlap", "Viability vs baseline"]):
-            a.bar(range(len(res)), res[col], color=c); a.set_ylim(0, 1); a.set_title(title); a.set_xticks([])
-        fig.tight_layout(); fig.savefig(art / f"robustness_report_{ts}.png", dpi=120)
+        bar_colors = [colors[k] for k in res["kind"]]
+        labels = list(res["variant"])
+        panels = [
+            ("gap_spearman", "Gap-ranking correlation", "Spearman vs baseline"),
+            ("underserved_overlap", "Underserved-set overlap", "share of baseline underserved cells kept"),
+            ("viability_spearman", "Viability correlation", "Spearman vs baseline"),
+        ]
+        fig, ax = plt.subplots(1, 3, figsize=(15, 5))
+        for a, (col, title, ylab) in zip(ax, panels):
+            a.bar(range(len(res)), res[col], color=bar_colors)
+            a.axhline(res[col].mean(), ls="--", color="grey", lw=1, label=f"mean {res[col].mean():.2f}")
+            a.set_ylim(0, 1); a.set_title(title); a.set_ylabel(ylab)
+            a.set_xticks(range(len(res)))
+            a.set_xticklabels(labels, rotation=45, ha="right", fontsize=8)
+            a.set_xlabel("variant (each re-scores the whole grid)")
+            a.legend(loc="lower left", fontsize=8)
+        handles = [Patch(color=v, label=f"{k} varied") for k, v in colors.items()]
+        fig.legend(handles=handles, title="colour = which choice", loc="upper center", ncol=3, bbox_to_anchor=(0.5, 1.02))
+        fig.suptitle("Gap-map robustness: stability of the map when arbitrary choices change", y=1.08, fontsize=13)
+        fig.tight_layout()
+        fig.savefig(art / f"robustness_report_{ts}.png", dpi=120, bbox_inches="tight")
         print(f"\nWrote report: ml/artifacts/robustness_report_{ts}.(json|md|png)")
     except Exception as exc:
         print(f"\nWrote report: ml/artifacts/robustness_report_{ts}.(json|md)  [plot skipped: {exc}]")

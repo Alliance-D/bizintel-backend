@@ -103,6 +103,7 @@ def build_context_prompt(assessment: dict[str, Any], user_context: dict[str, str
         f"Observed number of {assessment.get('business_category')} businesses actually nearby (OSM-derived, likely undercounts informal ones): {overall.get('observed_count')}",
         f"Gap (expected minus observed, positive = underserved, negative = saturated): {overall.get('gap')}",
         f"Classification: {overall.get('opportunity_type')}",
+        f"Viability (model probability that the area's fundamentals support this category at all, 0-1): {overall.get('viability')}",
         f"Confidence in this assessment (0-100): {overall.get('confidence_score')}",
         f"People living nearby (approx within 1km): {signals.get('people_within_1km')}",
         f"Commercial activity level in the area: {signals.get('commercial_activity_level')}",

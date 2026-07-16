@@ -34,6 +34,7 @@ ml/artifacts/*
 # The active production model is small enough to ship as a real repo asset
 # rather than something the deploy environment has to regenerate.
 !ml/artifacts/extra_trees_gap_model.joblib
+!ml/artifacts/hurdle_gap_model.joblib
 !ml/artifacts/model_comparison_20260709T231817Z.json
 
 # Notebook checkpoints

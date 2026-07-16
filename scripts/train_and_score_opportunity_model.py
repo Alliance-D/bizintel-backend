@@ -57,13 +57,14 @@ import shap
 from sklearn.base import clone
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import (
+    ExtraTreesClassifier,
     ExtraTreesRegressor,
     GradientBoostingRegressor,
     HistGradientBoostingRegressor,
     RandomForestRegressor,
 )
 from sklearn.impute import SimpleImputer
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, roc_auc_score
 from sklearn.model_selection import GroupShuffleSplit
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.pipeline import Pipeline
@@ -151,11 +152,56 @@ def load_features(eng) -> pd.DataFrame:
     return pd.read_sql_query(query, eng)
 
 
-def build_pipeline(model) -> Pipeline:
+def _preprocessor() -> ColumnTransformer:
     numeric = Pipeline([("imputer", SimpleImputer(strategy="median")), ("scaler", StandardScaler())])
     categorical = Pipeline([("imputer", SimpleImputer(strategy="most_frequent")), ("onehot", OneHotEncoder(handle_unknown="ignore"))])
-    pre = ColumnTransformer([("num", numeric, NUMERIC_FEATURES), ("cat", categorical, CATEGORICAL_FEATURES)])
-    return Pipeline([("preprocess", pre), ("model", model)])
+    return ColumnTransformer([("num", numeric, NUMERIC_FEATURES), ("cat", categorical, CATEGORICAL_FEATURES)])
+
+
+def build_pipeline(model) -> Pipeline:
+    return Pipeline([("preprocess", _preprocessor()), ("model", model)])
+
+
+def build_classifier_pipeline(clf) -> Pipeline:
+    return Pipeline([("preprocess", _preprocessor()), ("model", clf)])
+
+
+class HurdleModel:
+    """Two-part (hurdle) model for a zero-inflated count. Stage 1 classifies
+    whether the category is present at all (observed_count > 0); stage 2, trained
+    only on cells that do have it, predicts the count given presence. The expected
+    count is P(present) x E(count | present) - which handles the 88%-zero target
+    more honestly than a single regressor and yields a viability probability as a
+    by-product. Exposes .reg_pipe so tree SHAP can still attribute the count."""
+
+    def __init__(self, classifier, regressor):
+        self.classifier = classifier
+        self.regressor = regressor
+        self.clf_pipe: Pipeline | None = None
+        self.reg_pipe: Pipeline | None = None
+
+    def fit(self, X, y):
+        y = np.asarray(y, dtype=float)
+        present = (y > 0).astype(int)
+        self.clf_pipe = build_classifier_pipeline(clone(self.classifier)).fit(X, present)
+        nz = y > 0
+        # Need enough positive cells (and a running instance) to fit stage 2.
+        self.reg_pipe = build_pipeline(clone(self.regressor)).fit(X[nz], y[nz]) if nz.sum() >= 10 else None
+        return self
+
+    def proba_present(self, X) -> np.ndarray:
+        clf = self.clf_pipe.named_steps["model"]
+        classes = list(clf.classes_)
+        proba = self.clf_pipe.predict_proba(X)
+        return proba[:, classes.index(1)] if 1 in classes else np.zeros(len(X))
+
+    def count_if_present(self, X) -> np.ndarray:
+        if self.reg_pipe is None:
+            return np.zeros(len(X))
+        return np.clip(self.reg_pipe.predict(X), 0, None)
+
+    def predict(self, X) -> np.ndarray:
+        return self.proba_present(X) * self.count_if_present(X)
 
 
 def candidate_models() -> dict:
@@ -225,6 +271,29 @@ def cross_validate_models(df: pd.DataFrame, models: dict, n_repeats: int = N_CV_
         results.append({"algorithm": name, "status": "ok", "folds": len(per_model[name]["mae"]), "metrics": agg, "per_fold": per_model[name]})
     results.sort(key=lambda r: r["metrics"]["mae_mean"] if r["status"] == "ok" else float("inf"))
     return results
+
+
+def cross_validate_hurdle(df: pd.DataFrame, classifier, regressor, n_repeats: int = N_CV_REPEATS) -> dict:
+    """Evaluate the hurdle end-to-end under the same repeated grouped holdout:
+    fit both stages on train, predict the combined expected on the unseen
+    sectors, and report MAE/RMSE/R2 (comparable to the single-model table) plus
+    the stage-1 presence AUC."""
+    X, y, groups = df[ALL_FEATURES], df[TARGET].astype(float), df[SPLIT_GROUP_COLUMN]
+    splitter = GroupShuffleSplit(n_splits=n_repeats, test_size=0.22, random_state=42)
+    mae, rmse, r2, auc = [], [], [], []
+    for tr, te in splitter.split(X, y, groups):
+        h = HurdleModel(classifier, regressor).fit(X.iloc[tr], y.iloc[tr])
+        m = evaluate(y.iloc[te], np.clip(h.predict(X.iloc[te]), 0, None))
+        mae.append(m["mae"]); rmse.append(m["rmse"]); r2.append(m["r2"])
+        present_te = (y.iloc[te] > 0).astype(int)
+        if present_te.nunique() > 1:
+            auc.append(float(roc_auc_score(present_te, h.proba_present(X.iloc[te]))))
+    agg: dict[str, float | None] = {}
+    for name, vals in [("mae", mae), ("rmse", rmse), ("r2", r2)]:
+        agg[f"{name}_mean"] = round(float(np.mean(vals)), 4)
+        agg[f"{name}_std"] = round(float(np.std(vals)), 4)
+    agg["presence_auc_mean"] = round(float(np.mean(auc)), 4) if auc else None
+    return {"algorithm": "hurdle", "status": "ok", "folds": len(mae), "metrics": agg}
 
 
 # Canonical gap-band rule lives in app.services.gap_semantics so the scoring
@@ -306,34 +375,51 @@ def main():
 
     successful = [r for r in cv_results if r["status"] == "ok"]
     if not successful:
-        raise SystemExit("No candidate model trained successfully.")
-    best = successful[0]  # cross_validate_models sorts by mean MAE
-    best_name = best["algorithm"]
-    bm = best["metrics"]
-    print(f"\nBest model by mean MAE: {best_name} "
-          f"(MAE={bm['mae_mean']}+/-{bm['mae_std']}, R2={bm['r2_mean']}+/-{bm['r2_std']} over {best['folds']} splits)")
-    if bm["r2_mean"] > 0.9:
-        print("NOTE: mean R2 above 0.9 for a genuine observed-count target would be surprising - "
-              "double check NUMERIC_FEATURES doesn't still contain something that leaks the target.")
+        raise SystemExit("No candidate single model trained successfully.")
+    best_single = successful[0]  # cross_validate_models sorts by mean MAE
+    bs = best_single["metrics"]
+    print(f"\nBest single model by mean MAE: {best_single['algorithm']} "
+          f"(MAE={bs['mae_mean']}+/-{bs['mae_std']}, R2={bs['r2_mean']}+/-{bs['r2_std']})")
 
-    # Refit the winner on all rows for the deployed scorer - standard practice
-    # after CV-based selection: the CV above is the generalization estimate, and
-    # the final model uses all available data to score the grid.
-    model = build_pipeline(clone(models[best_name]))
-    model.fit(df[ALL_FEATURES], df[TARGET].astype(float))
+    # ---- Hurdle (two-part) model: P(present) x E(count | present). The target
+    # is ~88% zeros, so a single regressor conflates "is this category viable
+    # here at all" with "how many"; splitting them is the standard treatment for
+    # a zero-inflated count. Evaluated under the same repeated holdout so it's
+    # directly comparable to the single models above. ----
+    hurdle_clf = ExtraTreesClassifier(n_estimators=300, min_samples_leaf=2, class_weight="balanced", random_state=42, n_jobs=-1)
+    hurdle_reg = ExtraTreesRegressor(n_estimators=300, min_samples_leaf=2, random_state=42, n_jobs=-1)
+    hurdle_cv = cross_validate_hurdle(df, hurdle_clf, hurdle_reg)
+    hm = hurdle_cv["metrics"]
+    print(f"  {'hurdle (2-part)':24s} MAE={hm['mae_mean']:.3f}+/-{hm['mae_std']:.3f}  "
+          f"RMSE={hm['rmse_mean']:.3f}+/-{hm['rmse_std']:.3f}  R2={hm['r2_mean']:.3f}+/-{hm['r2_std']:.3f}  "
+          f"presence_AUC={hm['presence_auc_mean']}")
+    delta = bs["mae_mean"] - hm["mae_mean"]
+    print(f"Hurdle vs best single ({best_single['algorithm']}): MAE {hm['mae_mean']} vs {bs['mae_mean']} "
+          f"({'better' if delta >= 0 else 'worse'} by {abs(delta):.3f})\n")
 
-    # ---- SHAP explanations for the winning model (tree-based models only;
-    # KNeighborsRegressor and other non-tree models fall back gracefully) ----
+    # The hurdle is the chosen production model: it handles the zero-inflation and
+    # yields a viability probability as a by-product. Record it alongside the
+    # single-model comparison.
+    best_name = "hurdle"
+    best = {"algorithm": "hurdle", "status": "ok", "folds": hurdle_cv["folds"], "metrics": hm}
+    bm = hm
+    cv_results = cv_results + [best]
+
+    # Fit the final hurdle on all rows for the deployed scorer.
+    model = HurdleModel(hurdle_clf, hurdle_reg).fit(df[ALL_FEATURES], df[TARGET].astype(float))
+
+    # ---- SHAP for the count stage (which features drive "how many", once the
+    # category is present) - the interpretable half of the hurdle. ----
     shap_summary = None
-    underlying_model = model.named_steps["model"]
-    if hasattr(underlying_model, "feature_importances_") or type(underlying_model).__name__ in {
-        "RandomForestRegressor", "ExtraTreesRegressor", "GradientBoostingRegressor",
-        "HistGradientBoostingRegressor", "LGBMRegressor", "XGBRegressor",
-    }:
+    explainer = None
+    transformed_feature_names = None
+    shap_pipe = model.reg_pipe  # the count-given-present pipeline
+    underlying_model = shap_pipe.named_steps["model"] if shap_pipe is not None else None
+    if underlying_model is not None and hasattr(underlying_model, "feature_importances_"):
         try:
             sample = df[ALL_FEATURES].sample(min(2000, len(df)), random_state=42)
-            sample_transformed = model.named_steps["preprocess"].transform(sample)
-            transformed_feature_names = list(model.named_steps["preprocess"].get_feature_names_out())
+            sample_transformed = shap_pipe.named_steps["preprocess"].transform(sample)
+            transformed_feature_names = list(shap_pipe.named_steps["preprocess"].get_feature_names_out())
             explainer = shap.TreeExplainer(underlying_model)
             shap_values = explainer.shap_values(sample_transformed)
             mean_abs_shap = np.abs(shap_values).mean(axis=0)
@@ -341,7 +427,7 @@ def main():
                 [{"feature": n.split("__", 1)[-1], "mean_abs_shap": float(v)} for n, v in zip(transformed_feature_names, mean_abs_shap)],
                 key=lambda r: r["mean_abs_shap"], reverse=True,
             )[:20]
-            print("\nTop SHAP feature contributions (sample of scored cells):")
+            print("\nTop SHAP contributions to the count-given-present stage:")
             for row in shap_summary[:8]:
                 print(f"  {row['feature']:30s} {row['mean_abs_shap']:.3f}")
         except Exception as exc:
@@ -352,7 +438,7 @@ def main():
     artifact_dir = Path(args.artifact_dir)
     artifact_dir.mkdir(parents=True, exist_ok=True)
     artifact_path = artifact_dir / f"{best_name}_gap_model.joblib"
-    joblib.dump({"pipeline": model, "numeric_features": NUMERIC_FEATURES, "categorical_features": CATEGORICAL_FEATURES, "target": TARGET}, artifact_path)
+    joblib.dump({"hurdle": model, "numeric_features": NUMERIC_FEATURES, "categorical_features": CATEGORICAL_FEATURES, "target": TARGET}, artifact_path)
 
     split_strategy = f"repeated_group_shuffle_split_by_{SPLIT_GROUP_COLUMN}_x{N_CV_REPEATS}"
     comparison_path = artifact_dir / f"model_comparison_{timestamp}.json"
@@ -398,14 +484,16 @@ def main():
     # actually observed, then classify by gap percentile within category ----
     X_all = df[ALL_FEATURES]
     expected_all = np.clip(model.predict(X_all), 0, None)
+    viability_all = model.proba_present(X_all)  # P(category present at all) - the hurdle's stage 1
     df["expected_count"] = expected_all
+    df["viability"] = viability_all
     df["observed_count"] = df[TARGET]
     df["gap"] = df["expected_count"] - df["observed_count"]
     df["gap_percentile"] = df.groupby("business_category")["gap"].rank(pct=True) * 100
 
     row_shap_values = None
-    if explainer is not None:
-        X_all_transformed = model.named_steps["preprocess"].transform(X_all)
+    if explainer is not None and shap_pipe is not None:
+        X_all_transformed = shap_pipe.named_steps["preprocess"].transform(X_all)
         row_shap_values = explainer.shap_values(X_all_transformed)
 
     rows = []
@@ -417,6 +505,7 @@ def main():
             "observed_count": float(row.observed_count),
             "gap": round(float(row.gap), 3),
             "gap_percentile_within_category": round(float(row.gap_percentile), 1),
+            "viability": round(float(row.viability), 4),  # P(any business of this category is present)
         }
         if row_shap_values is not None:
             top_factors = collapse_shap_to_source_features(row_shap_values[i], transformed_feature_names)

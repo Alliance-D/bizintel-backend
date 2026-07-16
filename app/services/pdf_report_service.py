@@ -342,6 +342,8 @@ def _build_point_pdf(report: dict, entry: dict) -> bytes:
         ("Foot-traffic anchors (within 1 km)", f"{_safe_number(signals.get('anchor_count_1000m')):,.0f}"),
         ("Model estimate", f"~ {expected:.1f} {cats}"),
     ]
+    if overall.get("viability") is not None:
+        rows.append(("Viability (fundamentals support this type)", f"{_safe_number(overall.get('viability')) * 100:.0f}%"))
     pdf.setFont("Helvetica", 9)
     for name, value in rows:
         pdf.setFillColorRGB(*SLATE)

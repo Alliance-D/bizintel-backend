@@ -224,6 +224,7 @@ def _prediction_payload(prediction: dict[str, Any], latitude: float, longitude: 
     # number to actually show as "observed" - swap it in when available.
     observed_count = float(competitors.get("within_1000m", gap_details.get("observed_count") or 0))
     gap = (expected_count - observed_count) if expected_count is not None else gap_details.get("gap")
+    viability = gap_details.get("viability")  # P(any business of this category present) from the hurdle's stage 1
 
     return {
         "status": "ready",
@@ -251,6 +252,7 @@ def _prediction_payload(prediction: dict[str, Any], latitude: float, longitude: 
             "expected_count": round(float(expected_count), 2) if expected_count is not None else None,
             "observed_count": observed_count,
             "gap": round(float(gap), 2) if gap is not None else None,
+            "viability": round(float(viability), 4) if viability is not None else None,
         },
         "factors": {
             "demand_score": demand,

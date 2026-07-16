@@ -33,7 +33,17 @@ def list_opportunity_cells(
     Uses real ML predictions only. Empty output means the backend data pipeline has not produced predictions yet.
     """
     try:
-        sql = """
+        # Exclude cells the map-quality screen flagged as water (a lake/wetland
+        # cell must never surface as a "strongest spot"), mirroring the citywide
+        # map. Guarded so the query still works where the screen isn't set up.
+        try:
+            has_quality = bool(db.execute(text("SELECT to_regclass('ml.map_quality_flags') IS NOT NULL")).scalar())
+        except Exception:
+            db.rollback()
+            has_quality = False
+        quality_join = "LEFT JOIN ml.map_quality_flags q ON q.grid_id = p.grid_id" if has_quality else ""
+        quality_filter = "AND COALESCE(q.candidate_status, 'candidate') <> 'excluded_water'" if has_quality else ""
+        sql = f"""
             SELECT
                 p.grid_id,
                 p.business_category,
@@ -54,7 +64,9 @@ def list_opportunity_cells(
                 g.village
             FROM ml.ml_opportunity_predictions p
             LEFT JOIN geo.analysis_grid g ON g.grid_id = p.grid_id
+            {quality_join}
             WHERE p.business_category = :category
+            {quality_filter}
         """
         params: dict[str, Any] = {"category": category, "limit": limit}
         if district:

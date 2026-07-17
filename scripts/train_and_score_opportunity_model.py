@@ -117,16 +117,13 @@ NUMERIC_FEATURES = [
 CATEGORICAL_FEATURES = ["business_category", "district", "road_class_nearest"]
 ALL_FEATURES = NUMERIC_FEATURES + CATEGORICAL_FEATURES
 
-# Loaded alongside the features for narrative/context use only - never fed
-# to the model. competitor_count_1000m becomes the target itself
-# (observed_count); the others describe the same competitive picture at
-# finer/different granularity and are still useful to show, just not to
-# train on. The four hand-weighted composite scores are kept here too, for
-# display/backward-compat only.
+# Loaded alongside the features for narrative/context use only - never fed to
+# the model. competitor_count_1000m becomes the target itself (observed_count);
+# these describe the same competitive picture at finer granularity and are still
+# useful to show, just not to train on. (The retired hand-weighted composite
+# scores were removed - they were display-only and are gone from the schema.)
 CONTEXT_COLUMNS = [
-    "confidence_score", "competition_pressure", "nearest_competitor_m",
-    "competitor_count_300m", "competitor_count_500m",
-    "demand_score", "accessibility_score", "commercial_activity_score", "welfare_score",
+    "nearest_competitor_m", "competitor_count_300m", "competitor_count_500m",
 ]
 
 TARGET = "observed_count"
@@ -307,16 +304,10 @@ gap_percentile_classification = classify_gap_percentile
 
 def narrative_explanation(row: pd.Series, expected: float, observed: float, gap_percentile: float) -> dict:
     strengths, risks = [], []
-    if row.demand_score >= 70:
-        strengths.append("Demand signal is strong from population and household concentration")
-    if row.accessibility_score >= 70:
-        strengths.append("Access is favourable from transport or road proximity")
     if gap_percentile >= 80:
         strengths.append(f"Expected demand ({expected:.1f}) notably exceeds the {int(observed)} {row.business_category} businesses currently observed nearby")
     if gap_percentile < 25:
         risks.append(f"Observed supply ({int(observed)} nearby) already meets or exceeds what area fundamentals would predict ({expected:.1f})")
-    if row.confidence_score < 55:
-        risks.append("Data confidence is limited and field validation is important")
     if not strengths:
         strengths.append("The location has moderate signals and should be compared with stronger cells")
     return {
@@ -544,11 +535,6 @@ def main():
             # in explanation.gap_details for anything that wants the
             # unrounded numbers.
             "opportunity_score": float(row.gap_percentile),
-            "demand_score": float(row.demand_score or 0),
-            "accessibility_score": float(row.accessibility_score or 0),
-            "commercial_activity_score": float(row.commercial_activity_score or 0),
-            "competition_pressure": float(row.competition_pressure or 0),
-            "confidence_score": float(row.confidence_score or 0),
             "opportunity_type": opp_type,
             "zone_key": zone_key,
             "risk_level": risk,
@@ -562,13 +548,11 @@ def main():
         conn.execute(text("DELETE FROM ml.ml_opportunity_predictions WHERE model_version_id = :version_id"), {"version_id": version_id})
         conn.execute(text("""
             INSERT INTO ml.ml_opportunity_predictions (
-              grid_id, business_category, model_version_id, opportunity_score, demand_score, accessibility_score,
-              commercial_activity_score, competition_pressure, confidence_score, opportunity_rank, opportunity_type, zone_key,
+              grid_id, business_category, model_version_id, opportunity_score, opportunity_rank, opportunity_type, zone_key,
               risk_level, explanation, geom, cell_geom, district, sector, cell
             )
             SELECT
-              :grid_id, :business_category, :model_version_id, :opportunity_score, :demand_score, :accessibility_score,
-              :commercial_activity_score, :competition_pressure, :confidence_score,
+              :grid_id, :business_category, :model_version_id, :opportunity_score,
               NULL, :opportunity_type, :zone_key, :risk_level, CAST(:explanation AS jsonb),
               f.centroid, f.geom, :district, :sector, :cell
             FROM ml.grid_category_features f
@@ -577,7 +561,7 @@ def main():
         """), rows)
         conn.execute(text("""
             WITH ranked AS (
-              SELECT id, ROW_NUMBER() OVER (PARTITION BY business_category ORDER BY opportunity_score DESC, confidence_score DESC) AS rk
+              SELECT id, ROW_NUMBER() OVER (PARTITION BY business_category ORDER BY opportunity_score DESC) AS rk
               FROM ml.ml_opportunity_predictions WHERE model_version_id = :version_id
             )
             UPDATE ml.ml_opportunity_predictions p SET opportunity_rank = r.rk FROM ranked r WHERE p.id = r.id

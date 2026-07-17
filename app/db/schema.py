@@ -252,13 +252,6 @@ CREATE TABLE IF NOT EXISTS ml.grid_category_features (
   road_class_nearest TEXT,
   establishment_category_count_area DOUBLE PRECISION DEFAULT 0,
   establishment_density_area DOUBLE PRECISION DEFAULT 0,
-  demand_score DOUBLE PRECISION DEFAULT 0,
-  accessibility_score DOUBLE PRECISION DEFAULT 0,
-  commercial_activity_score DOUBLE PRECISION DEFAULT 0,
-  competition_pressure DOUBLE PRECISION DEFAULT 0,
-  welfare_score DOUBLE PRECISION DEFAULT 0,
-  opportunity_gap_score DOUBLE PRECISION DEFAULT 0,
-  confidence_score DOUBLE PRECISION DEFAULT 0,
   presence_target INTEGER DEFAULT 0,
   business_count_target DOUBLE PRECISION DEFAULT 0,
   ranking_relevance DOUBLE PRECISION DEFAULT 0,
@@ -274,7 +267,7 @@ CREATE TABLE IF NOT EXISTS ml.model_versions (
   id BIGSERIAL PRIMARY KEY,
   model_name TEXT NOT NULL,
   business_category TEXT,
-  target_name TEXT NOT NULL DEFAULT 'opportunity_gap_score',
+  target_name TEXT NOT NULL DEFAULT 'observed_count',
   algorithm TEXT NOT NULL,
   artifact_path TEXT,
   metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -290,11 +283,6 @@ CREATE TABLE IF NOT EXISTS ml.ml_opportunity_predictions (
   business_category TEXT NOT NULL,
   model_version_id BIGINT,
   opportunity_score DOUBLE PRECISION NOT NULL,
-  demand_score DOUBLE PRECISION DEFAULT 0,
-  accessibility_score DOUBLE PRECISION DEFAULT 0,
-  commercial_activity_score DOUBLE PRECISION DEFAULT 0,
-  competition_pressure DOUBLE PRECISION DEFAULT 0,
-  confidence_score DOUBLE PRECISION DEFAULT 0,
   opportunity_rank INTEGER,
   opportunity_type TEXT,
   zone_key TEXT,
@@ -336,34 +324,6 @@ CREATE TABLE IF NOT EXISTS app.tutorial_progress (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS app.saved_locations (
-  id BIGSERIAL PRIMARY KEY,
-  user_id BIGINT,
-  label TEXT NOT NULL DEFAULT 'Saved location',
-  business_category TEXT NOT NULL DEFAULT 'salon',
-  latitude DOUBLE PRECISION NOT NULL,
-  longitude DOUBLE PRECISION NOT NULL,
-  geom geometry(Point, 4326),
-  opportunity_score DOUBLE PRECISION,
-  risk_level TEXT,
-  notes TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS idx_saved_locations_geom ON app.saved_locations USING GIST (geom);
-
-CREATE TABLE IF NOT EXISTS app.alerts (
-  id BIGSERIAL PRIMARY KEY,
-  saved_location_id BIGINT,
-  alert_type TEXT NOT NULL DEFAULT 'opportunity',
-  severity TEXT NOT NULL DEFAULT 'info',
-  title TEXT NOT NULL,
-  message TEXT,
-  body TEXT,
-  is_read BOOLEAN NOT NULL DEFAULT FALSE,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
 CREATE TABLE IF NOT EXISTS app.location_reports (
   id BIGSERIAL PRIMARY KEY,
   public_token TEXT,
@@ -379,15 +339,6 @@ CREATE TABLE IF NOT EXISTS app.location_reports (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_location_reports_public_token ON app.location_reports (public_token);
 CREATE INDEX IF NOT EXISTS idx_location_reports_created_at ON app.location_reports (created_at);
-
-CREATE TABLE IF NOT EXISTS app.notification_preferences (
-  user_id BIGINT PRIMARY KEY,
-  weekly_digest BOOLEAN NOT NULL DEFAULT TRUE,
-  opportunity_alerts BOOLEAN NOT NULL DEFAULT TRUE,
-  competition_alerts BOOLEAN NOT NULL DEFAULT TRUE,
-  email_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
 
 CREATE TABLE IF NOT EXISTS app.saved_workbench_states (
   id BIGSERIAL PRIMARY KEY,
@@ -445,26 +396,6 @@ CREATE TABLE IF NOT EXISTS app.user_experience_events (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE OR REPLACE VIEW app.saved_location_summary AS
-SELECT sl.*,
-       p.opportunity_score AS latest_opportunity_score,
-       p.risk_level AS latest_risk_level,
-       p.confidence_score AS latest_confidence,
-       COALESCE(a.unread_alerts, 0)::BIGINT AS unread_alerts
-FROM app.saved_locations sl
-LEFT JOIN LATERAL (
-  SELECT opportunity_score, risk_level, confidence_score
-  FROM ml.ml_opportunity_predictions p
-  WHERE p.business_category = sl.business_category
-  ORDER BY p.geom <-> ST_SetSRID(ST_MakePoint(sl.longitude, sl.latitude), 4326)
-  LIMIT 1
-) p ON TRUE
-LEFT JOIN LATERAL (
-  SELECT COUNT(*) AS unread_alerts
-  FROM app.alerts a
-  WHERE a.saved_location_id = sl.id AND a.is_read = FALSE
-) a ON TRUE;
-
 -- ==================== scoring helper functions ====================
 
 CREATE OR REPLACE FUNCTION curated.score_from_count(value DOUBLE PRECISION, high_value DOUBLE PRECISION)
@@ -498,11 +429,6 @@ RETURNS TABLE (
   grid_id TEXT,
   business_category TEXT,
   opportunity_score DOUBLE PRECISION,
-  demand_score DOUBLE PRECISION,
-  accessibility_score DOUBLE PRECISION,
-  commercial_activity_score DOUBLE PRECISION,
-  competition_pressure DOUBLE PRECISION,
-  confidence_score DOUBLE PRECISION,
   opportunity_rank INTEGER,
   opportunity_type TEXT,
   zone_key TEXT,
@@ -518,9 +444,8 @@ RETURNS TABLE (
 BEGIN
   RETURN QUERY
   SELECT
-    p.grid_id, p.business_category, p.opportunity_score, p.demand_score,
-    p.accessibility_score, p.commercial_activity_score, p.competition_pressure,
-    p.confidence_score, p.opportunity_rank, p.opportunity_type, p.zone_key,
+    p.grid_id, p.business_category, p.opportunity_score,
+    p.opportunity_rank, p.opportunity_type, p.zone_key,
     p.risk_level, p.explanation, p.model_version_id,
     ST_Distance(p.geom::geography, ST_SetSRID(ST_MakePoint(p_lon, p_lat), 4326)::geography) AS distance_m,
     p.geom, p.district, p.sector, p.cell
@@ -578,8 +503,7 @@ VALUES
   ('commercial_poi_count_500m','Commercial activity','curated.osm_poi_features','grid cell',false,'Count of commercial/food/finance/market points of interest within 500m.','General commercial intensity around the location.','Reflects OSM mapping completeness, not ground-truth footfall.'),
   ('competitor_count_300m','Competition','curated.osm_poi_features','grid cell + category',true,'Count of same-category OSM points within 300m.','Immediate competitive pressure.','Informal, unmapped competitors are not counted - a field-validation gap the app is upfront about.'),
   ('competitor_count_500m','Competition','curated.osm_poi_features','grid cell + category',true,'Count of same-category OSM points within 500m.','Neighbourhood-level competitive pressure.','Same OSM coverage caveat as the 300m figure.'),
-  ('competitor_count_1000m','Competition','curated.osm_poi_features','grid cell + category',true,'Count of same-category OSM points within 1000m.','Wider-catchment competitive saturation.','Same OSM coverage caveat as the 300m figure.'),
-  ('opportunity_gap_score','Opportunity index','ml.grid_category_features','grid cell + category',true,'Documented weighted composite of demand, accessibility, commercial activity, inverse competition, and welfare, refined by a trained model - not a business-success or revenue prediction.','Overall spatial suitability signal for the category.','Reflects data availability, not guaranteed outcomes - always paired with a confidence score and field-visit recommendations.')
+  ('competitor_count_1000m','Competition','curated.osm_poi_features','grid cell + category',true,'Count of same-category OSM points within 1000m.','Wider-catchment competitive saturation.','Same OSM coverage caveat as the 300m figure.')
 ON CONFLICT (feature_name) DO UPDATE SET
   feature_group = EXCLUDED.feature_group,
   source_layer = EXCLUDED.source_layer,

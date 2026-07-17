@@ -94,25 +94,6 @@ def main():
       FROM base b
       JOIN grid_welfare gw ON gw.grid_id = b.grid_id
       JOIN grid_infra gi ON gi.grid_id = b.grid_id
-    ), scored AS (
-      SELECT fr.*,
-        curated.score_from_count(population_density_500m, NULLIF((SELECT percentile_cont(0.95) WITHIN GROUP (ORDER BY population_density_500m) FROM feature_rows), 0)) AS demand_raw,
-        (curated.score_from_count(bus_stop_count_500m, 12) * 0.50 + curated.distance_score(nearest_bus_stop_m, 150, 1800) * 0.50) AS access_raw,
-        (curated.score_from_count(commercial_poi_count_500m, 12) * 0.45 + curated.score_from_count(demand_generator_count_1000m, 8) * 0.30 + curated.distance_score(market_distance_m, 200, 2000) * 0.25) AS activity_raw,
-        LEAST(100, competitor_count_500m * 12 + competitor_count_1000m * 3 + establishment_category_count_area * 0.05) AS competition_raw,
-        LEAST(100, 35 + CASE WHEN population_density_500m > 0 THEN 20 ELSE 0 END + CASE WHEN commercial_poi_count_500m > 0 THEN 15 ELSE 0 END + CASE WHEN competitor_count_1000m > 0 THEN 15 ELSE 0 END + CASE WHEN sector_population > 0 THEN 15 ELSE 0 END) AS confidence_raw
-      FROM feature_rows fr
-    ), weighted AS (
-      SELECT s.*, p.demand_weight, p.access_weight, p.commercial_weight, p.competition_weight, p.welfare_weight,
-        LEAST(100, GREATEST(0,
-          s.demand_raw * p.demand_weight +
-          s.access_raw * p.access_weight +
-          s.activity_raw * p.commercial_weight +
-          GREATEST(0, 100 - s.competition_raw) * p.competition_weight +
-          s.welfare_proxy * p.welfare_weight
-        )) AS opportunity_gap_score_calc
-      FROM scored s
-      JOIN curated.business_category_profiles p ON p.category_key = s.business_category
     )
     INSERT INTO ml.grid_category_features (
       grid_id, business_category, geom, centroid, district, sector, cell,
@@ -124,8 +105,6 @@ def main():
       nearest_bus_station_m, nearest_school_m, nearest_health_m, nearest_finance_m,
       distance_to_main_road_m, road_density_500m, intersection_density_500m, road_class_nearest,
       establishment_category_count_area, establishment_density_area,
-      demand_score, accessibility_score, commercial_activity_score, competition_pressure,
-      welfare_score, opportunity_gap_score, confidence_score,
       presence_target, business_count_target, ranking_relevance, feature_payload
     )
     SELECT
@@ -138,12 +117,9 @@ def main():
       nearest_bus_station_m, nearest_school_m, nearest_health_m, nearest_finance_m,
       distance_to_main_road_m, road_density_500m, intersection_density_500m, road_class_nearest,
       establishment_category_count_area, 0,
-      demand_raw, access_raw, activity_raw, competition_raw,
-      welfare_proxy,
-      opportunity_gap_score_calc, confidence_raw,
       CASE WHEN competitor_count_1000m > 0 OR establishment_category_count_area > 0 THEN 1 ELSE 0 END,
       competitor_count_1000m + establishment_category_count_area,
-      opportunity_gap_score_calc,
+      competitor_count_1000m + establishment_category_count_area,
       jsonb_build_object(
         'nearest_competitor_m', nearest_competitor_m,
         'population_density_500m', population_density_500m,
@@ -151,7 +127,7 @@ def main():
         'commercial_poi_count_500m', commercial_poi_count_500m,
         'demand_generator_count_1000m', demand_generator_count_1000m
       )
-    FROM weighted
+    FROM feature_rows
     ON CONFLICT (grid_id, business_category) DO UPDATE SET
       geom = EXCLUDED.geom,
       centroid = EXCLUDED.centroid,
@@ -178,13 +154,6 @@ def main():
       road_density_500m = EXCLUDED.road_density_500m,
       intersection_density_500m = EXCLUDED.intersection_density_500m,
       road_class_nearest = EXCLUDED.road_class_nearest,
-      demand_score = EXCLUDED.demand_score,
-      accessibility_score = EXCLUDED.accessibility_score,
-      commercial_activity_score = EXCLUDED.commercial_activity_score,
-      competition_pressure = EXCLUDED.competition_pressure,
-      welfare_score = EXCLUDED.welfare_score,
-      opportunity_gap_score = EXCLUDED.opportunity_gap_score,
-      confidence_score = EXCLUDED.confidence_score,
       presence_target = EXCLUDED.presence_target,
       business_count_target = EXCLUDED.business_count_target,
       ranking_relevance = EXCLUDED.ranking_relevance,

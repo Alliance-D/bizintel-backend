@@ -113,6 +113,47 @@ The last two steps (and retraining afterward) can also be triggered from
 the admin API once the server is running: `POST /api/v1/admin/jobs/rebuild-features`
 and `POST /api/v1/admin/jobs/retrain` (admin role required).
 
+## Model
+
+The opportunity map is driven by a **two-part (hurdle) model** that predicts,
+for each 500 m grid cell and business category, how many businesses of that
+category the area's *fundamentals* would support, then compares that to how many
+are actually observed. The gap (expected − observed) is the finding; cells are
+banded by their gap percentile within category (Underserved / Room to grow /
+Balanced / Saturated).
+
+- **Trains on** `ml.grid_category_features` (~5,655 cell × category rows). Inputs
+  are leak-free area fundamentals only — population, income, welfare, POIs,
+  transport, road/intersection density, per-anchor distances. The category's own
+  current presence is **excluded** from the inputs; it *is* the target.
+- **Target** `observed_count` — same-category businesses within 1 km (OSM-derived).
+- **Stage 1 — presence:** ExtraTrees classifier, `P(any present)` → the
+  **viability** signal. **Stage 2 — count:** ExtraTrees regressor on a `log1p`
+  target, fit only on present cells. Expected = `P(present) × E(count | present)`.
+- **Validation** is honest: repeated **grouped spatial cross-validation**
+  (held-out sectors), not a single random split.
+
+Held-out performance of the live model:
+
+| metric | value |
+|---|---|
+| combined MAE | **0.508** |
+| combined R² | **0.595** |
+| presence AUC | **0.965** |
+| count-stage MAE (present cells) | ~2.45 (≈30% better than a no-feature baseline) |
+| gap-ranking stability (Spearman) | 0.786 |
+| underserved-set overlap across variants | 89.4% |
+| viability stability (Spearman) | 0.876 |
+
+The count target is fat-tailed (median 2, max 41), so the exact count is a rough
+estimate — the robust, defensible outputs are the **band** and the **viability
+probability**. What moved the numbers was **log-transforming the count target and
+dropping the non-generalising `sector` one-hot** (it can't transfer to unseen
+sectors) while keeping rich trees — over-regularising only made held-out error
+worse. The full comparison, learning curves, SHAP and a robustness/sensitivity
+check live in `ml/notebooks/model_development.ipynb` and
+`scripts/robustness_check.py`.
+
 ## Data sources and governance
 
 Real Rwanda data, not synthetic placeholders — see `docs/CHANGELOG.md` at

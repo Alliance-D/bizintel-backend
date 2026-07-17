@@ -22,7 +22,6 @@ class OpportunityZoneResponse(BaseModel):
     opportunity_score: float
     opportunity_rank: float | None = None
     opportunity_type: str | None = None
-    confidence_score: float | None = None
     latitude: float
     longitude: float
     explanation: dict | None = None

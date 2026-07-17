@@ -133,110 +133,6 @@ def _draw_footer(pdf: canvas.Canvas, page: int, width: float):
     pdf.drawRightString(width - 1.4 * cm, 1.05 * cm, f"Page {page}")
 
 
-def build_pdf_report(report: dict) -> bytes:
-    """Render a location-report dict to PDF bytes."""
-    buffer = BytesIO()
-    pdf = canvas.Canvas(buffer, pagesize=A4)
-    width, height = A4
-    margin = 1.4 * cm
-
-    title = str(report.get("title") or "Location decision report")
-    category = str(report.get("business_category") or "business")
-    latitude = report.get("latitude", "n/a")
-    longitude = report.get("longitude", "n/a")
-    score = _safe_number(report.get("overall_score") or report.get("opportunity_score"), 76)
-    confidence_raw = report.get("confidence", report.get("confidence_score", 81))
-    confidence = 81 if isinstance(confidence_raw, str) else _safe_number(confidence_raw, 81)
-    opportunity_type = str(report.get("opportunity_type") or _label_score(score))
-    factors = report.get("factors") or []
-    strengths = report.get("strengths") or ["Demand and access signals support further review", "Commercial activity suggests possible customer flow"]
-    risks = report.get("risks") or ["Competition pressure should be confirmed on the street", "Rent and space availability are not guaranteed by public data"]
-    checklist = report.get("field_visit_checklist") or []
-    next_steps = report.get("recommended_next_steps") or ["Compare at least two alternative locations", "Visit the area during peak and quiet hours", "Confirm rent, frontage, visibility and informal competitors"]
-    competitive = report.get("competitive_analysis") or {}
-
-    _draw_header(pdf, title, width, height)
-    y = height - 3.15 * cm
-    pdf.setFillColorRGB(*BRAND)
-    pdf.setFont("Helvetica-Bold", 24)
-    pdf.drawString(margin, y, title[:54])
-    y -= 18
-    pdf.setFillColorRGB(*SLATE)
-    pdf.setFont("Helvetica", 10)
-    pdf.drawString(margin, y, f"{category.title()} - {latitude}, {longitude}")
-    pdf.drawRightString(width - margin, y, "Generated report")
-    y -= 26
-
-    pdf.setFillColorRGB(*MINT)
-    pdf.roundRect(margin, y - 58, width - 2 * margin, 58, 12, fill=1, stroke=0)
-    pdf.setFillColorRGB(*BRAND)
-    pdf.setFont("Helvetica-Bold", 11)
-    pdf.drawString(margin + 12, y - 18, "Executive summary")
-    y2 = _wrap_text(pdf, report.get("executive_summary") or f"This location is classified as {opportunity_type}. Use the score as a decision signal before committing to rent or lease terms", margin + 12, y - 34, 92, leading=11, size=8.7, max_lines=2)
-    y -= 78
-
-    card_w = (width - 2 * margin - 18) / 3
-    _card(pdf, margin, y, card_w, 78, "Opportunity", f"{round(score)}", "Overall fit signal", TEAL)
-    _card(pdf, margin + card_w + 9, y, card_w, 78, "Confidence", f"{round(confidence)}", "Data reliability", TEAL)
-    _card(pdf, margin + (card_w + 9) * 2, y, card_w, 78, "Class", f"{round(score)}", opportunity_type[:32], AMBER if score < 78 else TEAL)
-    y -= 104
-
-    y = _section_title(pdf, "Score profile", margin, y)
-    factor_map = {str(f.get("label") or f.get("key", "")).lower(): _safe_number(f.get("score"), 0) for f in factors if isinstance(f, dict)}
-    demand = factor_map.get("demand", factor_map.get("demand score", _safe_number(report.get("demand_score"), max(0, score + 8))))
-    access = factor_map.get("access", factor_map.get("accessibility", _safe_number(report.get("access_score"), max(0, score + 5))))
-    competition = factor_map.get("competition", factor_map.get("competition pressure", _safe_number(report.get("competition_pressure"), 63)))
-    activity = factor_map.get("commercial activity", factor_map.get("activity", _safe_number(report.get("commercial_activity_score"), max(0, score + 2))))
-    y = _bar(pdf, margin, y, "Demand", demand, TEAL)
-    y = _bar(pdf, margin, y, "Access", access, TEAL)
-    y = _bar(pdf, margin, y, "Commercial activity", activity, TEAL)
-    y = _bar(pdf, margin, y, "Competition pressure", competition, AMBER if competition < 75 else ROSE)
-
-    x2 = width / 2 + 0.4 * cm
-    y_right = y + 112
-    y_right = _section_title(pdf, "Competitive context", x2, y_right)
-    context = competitive.get("summary") or "Competition pressure must be read together with demand, access and differentiation. High demand can still be useful when the business has a distinct offer"
-    y_right = _wrap_text(pdf, context, x2, y_right, 47, leading=11, size=9, max_lines=5)
-    y_right -= 6
-    pdf.setFillColorRGB(*MINT)
-    pdf.roundRect(x2, y_right - 46, width - margin - x2, 46, 10, fill=1, stroke=0)
-    pdf.setFillColorRGB(*BRAND)
-    pdf.setFont("Helvetica-Bold", 10)
-    pdf.drawString(x2 + 10, y_right - 18, "Recommended strategy")
-    _wrap_text(pdf, "Compare this site with at least two nearby alternatives, then validate rent, frontage, foot traffic and informal competitors", x2 + 10, y_right - 32, 44, leading=10, size=8.4, max_lines=2)
-
-    y = min(y, y_right - 62)
-    y -= 4
-    y = _section_title(pdf, "Strengths", margin, y)
-    y = _bullet_list(pdf, strengths, margin, y, 76, 4)
-    y -= 8
-    y = _section_title(pdf, "Risks to verify", margin, y)
-    y = _bullet_list(pdf, risks, margin, y, 76, 4)
-
-    _draw_footer(pdf, 1, width)
-    pdf.showPage()
-
-    _draw_header(pdf, title, width, height)
-    y = height - 3.1 * cm
-    y = _section_title(pdf, "Field validation checklist", margin, y)
-    y = _bullet_list(pdf, checklist, margin, y, 95, 8)
-    y -= 10
-    y = _section_title(pdf, "Recommended next steps", margin, y)
-    y = _bullet_list(pdf, next_steps, margin, y, 95, 6)
-    y -= 12
-
-    pdf.setFillColorRGB(1, 1, 1)
-    pdf.setStrokeColorRGB(*LINE)
-    pdf.roundRect(margin, y - 90, width - 2 * margin, 90, 14, fill=1, stroke=1)
-    pdf.setFillColorRGB(*BRAND)
-    pdf.setFont("Helvetica-Bold", 12)
-    pdf.drawString(margin + 14, y - 22, "Important use note")
-    _wrap_text(pdf, "This report supports decision making. It is not a guarantee of revenue, profit, rent availability, regulatory approval or business success. Use it to shortlist, compare and prepare field checks before committing", margin + 14, y - 42, 95, leading=12, size=9, max_lines=4)
-
-    _draw_footer(pdf, 2, width)
-    pdf.save()
-    return buffer.getvalue()
-
 
 # --- Unified report (the /start -> /report/[token] flow) -------------------
 
@@ -297,7 +193,6 @@ def _build_point_pdf(report: dict, entry: dict) -> bytes:
     observed = _safe_number(overall.get("observed_count"))
     room = expected - observed
     verdict = _gap_verdict(expected, observed)
-    confidence = _safe_number(overall.get("confidence_score"))
     narrative = ((entry.get("narrative") or {}).get("advice")) or ""
 
     _draw_header(pdf, "BizIntel", width, height)
@@ -337,7 +232,6 @@ def _build_point_pdf(report: dict, entry: dict) -> bytes:
     y = _section_title(pdf, "The signals behind it", margin, y)
     rows = [
         ("People nearby (within 1 km)", f"{_safe_number(signals.get('people_within_1km')):,.0f}"),
-        ("Commercial activity", str(signals.get("commercial_activity_level") or "-")),
         (f"{cats.title()} already open", f"{observed:.0f}"),
         ("Foot-traffic anchors (within 1 km)", f"{_safe_number(signals.get('anchor_count_1000m')):,.0f}"),
         ("Model estimate", f"~ {expected:.1f} {cats}"),
@@ -376,7 +270,7 @@ def _build_point_pdf(report: dict, entry: dict) -> bytes:
     y -= 6
     pdf.setFillColorRGB(*SLATE)
     pdf.setFont("Helvetica", 8.5)
-    pdf.drawString(margin, y, f"Confidence: {confidence:.0f}%   ·   Based on mapped {cats} within 1 km   ·   Informal shops uncounted")
+    pdf.drawString(margin, y, f"Based on mapped {cats} within 1 km   ·   Informal shops uncounted")
     y -= 22
 
     pdf.setFillColorRGB(1, 1, 1)

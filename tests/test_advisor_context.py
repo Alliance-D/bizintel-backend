@@ -5,11 +5,7 @@ ASSESSMENT = {
     "location_label": "the part of Kimihurura around Ituze village",
     "overall": {
         "expected_count": 6.3, "observed_count": 7.0, "gap": -0.7,
-        "gap_score": 5.4, "opportunity_type": "Saturated", "confidence_score": 80.0,
-    },
-    "factors": {
-        "demand_score": 50.0, "accessibility_score": 60.0,
-        "commercial_activity_score": 70.0, "competition_pressure": 100.0,
+        "gap_score": 5.4, "opportunity_type": "Saturated", "viability": 0.82,
     },
     "competition": {"within_300m": 1, "within_500m": 3, "within_1000m": 7},
 }

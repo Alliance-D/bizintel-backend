@@ -49,11 +49,6 @@ def list_opportunity_cells(
                 p.business_category,
                 p.opportunity_score,
                 p.opportunity_type,
-                p.demand_score,
-                p.accessibility_score,
-                p.commercial_activity_score,
-                p.competition_pressure,
-                p.confidence_score,
                 p.opportunity_rank,
                 p.explanation,
                 ST_Y(p.geom) AS latitude,
@@ -78,7 +73,7 @@ def list_opportunity_cells(
         if cell:
             sql += " AND lower(p.cell) = lower(:cell)"
             params["cell"] = cell
-        sql += " ORDER BY p.opportunity_score DESC, p.confidence_score DESC LIMIT :limit"
+        sql += " ORDER BY p.opportunity_score DESC, p.opportunity_rank ASC LIMIT :limit"
         rows = db.execute(text(sql), params).mappings().all()
         if rows:
             out = [_normalise_row(r, locale) for r in rows]
@@ -100,9 +95,6 @@ def summarize_opportunity_map(cells: list[dict[str, Any]]) -> dict[str, Any]:
         return {
             "total_cells": 0,
             "average_opportunity": 0,
-            "average_demand": 0,
-            "average_access": 0,
-            "average_competition": 0,
             "zone_counts": {},
         }
     def avg(key: str) -> float:
@@ -111,10 +103,6 @@ def summarize_opportunity_map(cells: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "total_cells": len(cells),
         "average_opportunity": avg("opportunity_score"),
-        "average_demand": avg("demand_score"),
-        "average_access": avg("accessibility_score"),
-        "average_competition": avg("competition_pressure"),
-        "average_confidence": avg("confidence_score"),
         "zone_counts": dict(zone_counts),
         "best_zone": max(cells, key=lambda c: c.get("opportunity_score") or 0) if cells else None,
     }

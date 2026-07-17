@@ -65,9 +65,8 @@ def assess_location_ml(db: Session, latitude: float, longitude: float, business_
         "latitude": latitude,
         "longitude": longitude,
         "location_label": location_label(None, None, None, None, locale),
-        "overall": {"gap_score": 0, "opportunity_score": 0, "confidence_score": 0, "opportunity_type": _localize_opportunity_type("Prediction unavailable", locale), "opportunity_rank": None, "expected_count": None, "observed_count": None, "gap": None},
-        "factors": {"demand_score": 0, "accessibility_score": 0, "commercial_activity_score": 0, "competition_pressure": 0},
-        "signals": _build_signals({}, 0, None, 0, locale),
+        "overall": {"gap_score": 0, "opportunity_score": 0, "opportunity_type": _localize_opportunity_type("Prediction unavailable", locale), "opportunity_rank": None, "expected_count": None, "observed_count": None, "gap": None, "viability": None},
+        "signals": _build_signals({}, None, 0, locale),
         "competition": {"within_300m": 0, "within_500m": 0, "within_1000m": 0},
         "nearby_context": [],
         "explanation": {"summary": "Nta iteganya ryabonetse kuri aha hantu n'ubu bwoko." if rw else "No prediction was found for this location and category."},
@@ -169,19 +168,9 @@ def _grid_signals(db: Session, grid_id: str | None, category: str) -> dict[str, 
     return {}
 
 
-def _activity_level(score: float, locale: str | None = None) -> str:
-    """Bucket a commercial-activity score into High/Medium/Low, localized."""
-    rw = _is_kinyarwanda(locale)
-    if score >= 60:
-        return "Byinshi" if rw else "High"
-    if score >= 30:
-        return "Bigereranije" if rw else "Medium"
-    return "Bike" if rw else "Low"
-
-
-def _build_signals(raw: dict[str, Any], commercial_score: float, expected_count: float | None, observed_count: float, locale: str | None = None) -> dict[str, Any]:
+def _build_signals(raw: dict[str, Any], expected_count: float | None, observed_count: float, locale: str | None = None) -> dict[str, Any]:
     """Assemble the plain-language signal block shown on the report (people nearby,
-    activity level, anchors, distances, expected/observed counts) from raw features."""
+    anchors, distances, expected/observed counts) from raw features."""
     density = raw.get("population_density_1000m")
     return {
         # population density is people/km2; within a ~1km radius that's ~pi km2,
@@ -189,7 +178,6 @@ def _build_signals(raw: dict[str, Any], commercial_score: float, expected_count:
         "people_within_1km": round(density * 3.14159) if density else None,
         "population_density_1000m": round(density) if density else None,
         "sector_population": round(raw["sector_population"]) if raw.get("sector_population") else None,
-        "commercial_activity_level": _activity_level(commercial_score, locale),
         "commercial_poi_count_500m": int(raw["commercial_poi_count_500m"]) if raw.get("commercial_poi_count_500m") is not None else None,
         "complementary_poi_count_500m": int(raw["complementary_poi_count_500m"]) if raw.get("complementary_poi_count_500m") is not None else None,
         "anchor_count_1000m": int(raw["demand_generator_count_1000m"]) if raw.get("demand_generator_count_1000m") is not None else None,
@@ -208,11 +196,6 @@ def _prediction_payload(prediction: dict[str, Any], latitude: float, longitude: 
     payload, swapping the live observed count in so the shown gap reflects the
     exact clicked point."""
     gap_score = round(float(prediction.get("opportunity_score") or 0), 2)  # gap percentile within category (0-100), see train_and_score_opportunity_model.py
-    confidence = round(float(prediction.get("confidence_score") or 0), 2)
-    competition = round(float(prediction.get("competition_pressure") or 0), 2)
-    access = round(float(prediction.get("accessibility_score") or prediction.get("access_score") or 0), 2)
-    commercial = round(float(prediction.get("commercial_activity_score") or 0), 2)
-    demand = round(float(prediction.get("demand_score") or 0), 2)
     opportunity_type = prediction.get("opportunity_type") or "Worth comparing"
 
     explanation = dict(prediction.get("explanation") or {})
@@ -248,24 +231,17 @@ def _prediction_payload(prediction: dict[str, Any], latitude: float, longitude: 
             "opportunity_score": gap_score,  # kept for callers not yet migrated to gap_score
             "opportunity_rank": prediction.get("opportunity_rank"),
             "opportunity_type": _localize_opportunity_type(opportunity_type, locale),
-            "confidence_score": confidence,
             "expected_count": round(float(expected_count), 2) if expected_count is not None else None,
             "observed_count": observed_count,
             "gap": round(float(gap), 2) if gap is not None else None,
             "viability": round(float(viability), 4) if viability is not None else None,
         },
-        "factors": {
-            "demand_score": demand,
-            "accessibility_score": access,
-            "commercial_activity_score": commercial,
-            "competition_pressure": competition,
-        },
-        "signals": _build_signals(signals_raw or {}, commercial, expected_count, observed_count, locale),
+        "signals": _build_signals(signals_raw or {}, expected_count, observed_count, locale),
         "competition": competitors,
         "nearby_context": [],
         "explanation": explanation,
-        "risk_notes": _risk_notes(gap_score, competition, confidence, access, locale),
-        "recommendation": _recommendation(gap_score, confidence, competition, expected_count, observed_count, locale),
+        "risk_notes": _risk_notes(gap_score, viability, locale),
+        "recommendation": _recommendation(gap_score, expected_count, observed_count, viability, locale),
     }
 
 
@@ -274,10 +250,10 @@ def list_top_opportunity_zones(db: Session, business_category: str, limit: int =
     try:
         rows = db.execute(text("""
             SELECT grid_id, business_category, opportunity_score, opportunity_rank, opportunity_type,
-                   confidence_score, ST_Y(geom) AS latitude, ST_X(geom) AS longitude, explanation
+                   ST_Y(geom) AS latitude, ST_X(geom) AS longitude, explanation
             FROM ml.ml_opportunity_predictions
             WHERE business_category = :category
-            ORDER BY opportunity_score DESC, confidence_score DESC
+            ORDER BY opportunity_score DESC, opportunity_rank ASC
             LIMIT :limit
         """), {"category": business_category, "limit": limit}).mappings().all()
         if rows:
@@ -335,26 +311,25 @@ def _localize_opportunity_type(opportunity_type: str, locale: str | None) -> str
     return _OPPORTUNITY_TYPE_RW.get(opportunity_type, opportunity_type)
 
 
-def _risk_notes(gap_score: float, competition: float, confidence: float, access: float, locale: str | None = None) -> list[str]:
+def _risk_notes(gap_score: float, viability: float | None, locale: str | None = None) -> list[str]:
     """gap_score is a gap percentile within category (0-100, higher = more
-    underserved relative to peers), not a general-purpose quality score."""
+    underserved relative to peers), not a general-purpose quality score.
+    viability is the model's P(any of this category present), stage 1 of the hurdle."""
     rw = _is_kinyarwanda(locale)
     notes = []
-    if confidence < 55:
-        notes.append("Icyizere cy'amakuru ni hagati; emeza abandi bacuruza batemewe n'uko abakiriya banyura." if rw else "Data confidence is moderate; this may be a thin-data area, so validate informal competitors and customer flow in person.")
-    if access < 45:
-        notes.append("Kugerwaho ni intege nke ugereranyije n'ahandi hantu." if rw else "Accessibility (transport, roads) is weaker here than in most other areas.")
+    if viability is not None and viability < 0.4:
+        notes.append("Ibimenyetso by'agace bishyigikira ubu bwoko hano make; suzuma neza ko hari abakiriya bahagije." if rw else "Area fundamentals only weakly support this category here - check carefully that there is enough demand before committing.")
     if gap_score < 25:
         notes.append("Ibiboneka biri hafi bisa n'ibihagije cyangwa birenze icyo ibimenyetso by'agace byari biteganya." if rw else "Observed supply here already meets or exceeds what area fundamentals would predict - this looks saturated, not underserved.")
     notes.append("OSM ntabwo yandika neza ubucuruzi butemewe; iki gitekerezo gishobora kutagaragaza ibiboneka nyabyo." if rw else "OSM undercounts informal businesses, so the observed count here is a floor, not a ceiling - always verify on the ground.")
     return notes
 
 
-def _recommendation(gap_score: float, confidence: float, competition_pressure: float, expected_count: float | None, observed_count: float, locale: str | None = None) -> str:
+def _recommendation(gap_score: float, expected_count: float | None, observed_count: float, viability: float | None, locale: str | None = None) -> str:
     """gap_score is a gap percentile within category (0-100, higher = more underserved)."""
     rw = _is_kinyarwanda(locale)
-    if confidence < 45:
-        return "Koresha iki nk'ikimenyetso cyo gushakisha hanyuma wemeze aha hantu ku rubuga mbere yo gufata icyemezo." if rw else "Data confidence here is limited - use this as an exploratory signal and validate the area physically before deciding."
+    if viability is not None and viability < 0.35:
+        return "Ibimenyetso by'agace bishyigikira ubu bwoko hano make - bikoreshe nk'ikimenyetso cyo gushakisha hanyuma wemeze aha hantu ku rubuga mbere yo gufata icyemezo." if rw else "Area fundamentals only weakly support this category here - treat it as an exploratory signal and validate the area physically before deciding."
     expected_txt = f"{expected_count:.1f}" if expected_count is not None else "?"
     if gap_score >= 80:
         return (f"Aha hantu hasa n'aho hatarigera hagerwaho bihagije: iteganya ni {expected_txt}, ariko {observed_count:.0f} ni byo biboneka ubu. Tangira isuzuma ku rubuga ku byerekeye ikodesha n'abandi bacuruza batemewe." if rw

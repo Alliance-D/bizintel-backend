@@ -112,7 +112,6 @@ def build_comparison_from_entries(point_entries: list[dict[str, Any]], business_
     for e in point_entries:
         assessment = e["assessment"]
         overall = assessment.get("overall", {})
-        factors = assessment.get("factors", {})
         signals = assessment.get("signals") or {}
         gap_score = overall.get("gap_score", overall.get("opportunity_score", 0))
         results.append({
@@ -127,19 +126,15 @@ def build_comparison_from_entries(point_entries: list[dict[str, Any]], business_
             "gap_score": gap_score,
             "opportunity_score": gap_score,
             "opportunity_type": overall.get("opportunity_type"),
-            "confidence_score": overall.get("confidence_score"),
             "expected_count": overall.get("expected_count"),
             "observed_count": overall.get("observed_count"),
             "gap": overall.get("gap"),
+            "viability": overall.get("viability"),
             "people_within_1km": signals.get("people_within_1km"),
             "anchor_count": signals.get("anchor_count_1000m"),
-            "demand_score": factors.get("demand_score"),
-            "accessibility_score": factors.get("accessibility_score"),
-            "commercial_activity_score": factors.get("commercial_activity_score"),
-            "competition_pressure": factors.get("competition_pressure"),
             "recommendation": assessment.get("recommendation"),
         })
-    results.sort(key=lambda r: (r["gap_score"], -(r.get("competition_pressure") or 0)), reverse=True)
+    results.sort(key=lambda r: (r["gap_score"], r.get("viability") or 0), reverse=True)
     winner, runner = results[0], results[1]
     summary = _comparison_summary(winner, runner, business_category, rw)
     return {"locations": results, "best_location": winner, "summary": summary}

@@ -104,9 +104,7 @@ def build_context_prompt(assessment: dict[str, Any], user_context: dict[str, str
         f"Gap (expected minus observed, positive = underserved, negative = saturated): {overall.get('gap')}",
         f"Classification: {overall.get('opportunity_type')}",
         f"Viability (model probability that the area's fundamentals support this category at all, 0-1): {overall.get('viability')}",
-        f"Confidence in this assessment (0-100): {overall.get('confidence_score')}",
         f"People living nearby (approx within 1km): {signals.get('people_within_1km')}",
-        f"Commercial activity level in the area: {signals.get('commercial_activity_level')}",
         f"Foot-traffic anchors within 1km - bus stops: {signals.get('bus_stop_count_500m')} (nearest {signals.get('nearest_bus_stop_m')}m), "
         f"schools: {signals.get('school_count_1000m')}, health facilities: {signals.get('health_facility_count_1000m')}, "
         f"distance to nearest market: {signals.get('market_distance_m')}m",

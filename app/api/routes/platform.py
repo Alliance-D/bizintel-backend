@@ -59,14 +59,9 @@ def opportunity_geojson(
     try:
         import json
 
-        value_expr = {
-            'demand': 'demand_score',
-            'access': 'accessibility_score',
-            'activity': 'commercial_activity_score',
-            'commercial': 'commercial_activity_score',
-            'competition': 'competition_pressure',
-            'confidence': 'confidence_score',
-        }.get(layer, 'opportunity_score')
+        # The map now has a single opportunity (gap) layer; the old per-composite
+        # lenses were removed along with the composite scores.
+        value_expr = 'opportunity_score'
 
         quality_available = _map_quality_available(db)
         quality_join = """
@@ -86,8 +81,7 @@ def opportunity_geojson(
             quality_filter += " AND COALESCE(q.candidate_status, 'candidate') = 'candidate'"
 
         rows = db.execute(text(f"""
-            SELECT p.grid_id, p.opportunity_score, p.opportunity_score AS gap_score, p.demand_score, p.accessibility_score,
-                   p.commercial_activity_score, p.competition_pressure, p.confidence_score,
+            SELECT p.grid_id, p.opportunity_score, p.opportunity_score AS gap_score,
                    p.opportunity_type, p.zone_key, p.risk_level, p.district, p.sector, p.cell, g.village, p.explanation,
                    q.candidate_status, q.water_overlap_pct, q.poi_count_500,
                    q.building_count_300, q.road_count_300, q.warning_labels AS qa_warning_labels,
@@ -232,8 +226,7 @@ def best_business(latitude: float, longitude: float, db: Session = Depends(get_d
               ORDER BY geom <-> ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)
               LIMIT 1
             )
-            SELECT p.business_category, p.opportunity_score, p.demand_score, p.accessibility_score,
-                   p.commercial_activity_score, p.competition_pressure, p.confidence_score,
+            SELECT p.business_category, p.opportunity_score,
                    p.opportunity_type, p.explanation
             FROM ml.ml_opportunity_predictions p
             JOIN nearest n ON n.grid_id = p.grid_id

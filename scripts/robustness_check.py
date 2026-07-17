@@ -31,6 +31,7 @@ from sklearn.ensemble import (
     HistGradientBoostingClassifier, HistGradientBoostingRegressor,
     RandomForestClassifier, RandomForestRegressor,
 )
+from sklearn.compose import TransformedTargetRegressor
 from sklearn.model_selection import GroupShuffleSplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -42,8 +43,11 @@ UNDERSERVED_PCTL = 80  # the "Underserved" band cut, matches gap_semantics
 
 
 def _extra_trees(seed=42):
+    # Matches the production hurdle: rich trees + log1p-target count stage.
     return (ExtraTreesClassifier(n_estimators=300, min_samples_leaf=2, class_weight="balanced", random_state=seed, n_jobs=-1),
-            ExtraTreesRegressor(n_estimators=300, min_samples_leaf=2, random_state=seed, n_jobs=-1))
+            TransformedTargetRegressor(
+                ExtraTreesRegressor(n_estimators=400, min_samples_leaf=2, max_features=0.8, random_state=seed, n_jobs=-1),
+                func=np.log1p, inverse_func=np.expm1))
 
 
 def score_map(df: pd.DataFrame, clf, reg, train_idx=None) -> pd.DataFrame:

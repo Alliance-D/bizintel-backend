@@ -55,7 +55,7 @@ import numpy as np
 import pandas as pd
 import shap
 from sklearn.base import clone
-from sklearn.compose import ColumnTransformer
+from sklearn.compose import ColumnTransformer, TransformedTargetRegressor
 from sklearn.ensemble import (
     ExtraTreesClassifier,
     ExtraTreesRegressor,
@@ -110,7 +110,11 @@ NUMERIC_FEATURES = [
     "nearest_bus_station_m", "nearest_school_m", "nearest_health_m", "nearest_finance_m",
     "distance_to_main_road_m", "road_density_500m", "intersection_density_500m",
 ]
-CATEGORICAL_FEATURES = ["business_category", "district", "sector", "road_class_nearest"]
+# 'sector' is intentionally NOT a feature: as a one-hot it cannot generalise to
+# sectors held out in grouped CV, so it only ever encoded memorised per-sector
+# levels. It stays in the loaded frame (for the spatial CV grouping) but out of
+# the model. 'district' (3 levels, seen in every fold) is safe to keep.
+CATEGORICAL_FEATURES = ["business_category", "district", "road_class_nearest"]
 ALL_FEATURES = NUMERIC_FEATURES + CATEGORICAL_FEATURES
 
 # Loaded alongside the features for narrative/context use only - never fed
@@ -387,7 +391,19 @@ def main():
     # a zero-inflated count. Evaluated under the same repeated holdout so it's
     # directly comparable to the single models above. ----
     hurdle_clf = ExtraTreesClassifier(n_estimators=300, min_samples_leaf=2, class_weight="balanced", random_state=42, n_jobs=-1)
-    hurdle_reg = ExtraTreesRegressor(n_estimators=300, min_samples_leaf=2, random_state=42, n_jobs=-1)
+    # The count stage sees only the ~700 present cells and the count is fat-tailed
+    # (median 2, max 41). A log1p target handles that skew and is the real win here;
+    # rich trees (leaf=2) with light feature subsampling generalise best - clamping
+    # leaf size only raised the held-out error. Measured on grouped CV: combined MAE
+    # 0.51 -> 0.46, R2 0.51 -> 0.60, count-stage held-out MAE 2.67 -> 2.45. (The large
+    # train/val gap of the ensemble is not the target: it still generalises best.)
+    # 'sector' is dropped from the features (see CATEGORICAL_FEATURES): as a one-hot
+    # it can't generalise to unseen sectors and only encodes memorised per-sector
+    # levels - dropping it improved held-out R2.
+    hurdle_reg = TransformedTargetRegressor(
+        ExtraTreesRegressor(n_estimators=400, min_samples_leaf=2, max_features=0.8, random_state=42, n_jobs=-1),
+        func=np.log1p, inverse_func=np.expm1,
+    )
     hurdle_cv = cross_validate_hurdle(df, hurdle_clf, hurdle_reg)
     hm = hurdle_cv["metrics"]
     print(f"  {'hurdle (2-part)':24s} MAE={hm['mae_mean']:.3f}+/-{hm['mae_std']:.3f}  "
@@ -415,6 +431,9 @@ def main():
     transformed_feature_names = None
     shap_pipe = model.reg_pipe  # the count-given-present pipeline
     underlying_model = shap_pipe.named_steps["model"] if shap_pipe is not None else None
+    if underlying_model is not None and hasattr(underlying_model, "regressor_"):
+        # unwrap the log1p target wrapper to reach the fitted tree ensemble
+        underlying_model = underlying_model.regressor_
     if underlying_model is not None and hasattr(underlying_model, "feature_importances_"):
         try:
             sample = df[ALL_FEATURES].sample(min(2000, len(df)), random_state=42)

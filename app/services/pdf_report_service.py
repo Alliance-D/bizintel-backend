@@ -65,15 +65,15 @@ def _card(pdf: canvas.Canvas, x: float, y: float, w: float, h: float, title: str
     pdf.roundRect(x, y - h, w, h, 12, fill=1, stroke=1)
     pdf.setFillColorRGB(*SLATE)
     pdf.setFont("Helvetica-Bold", 8)
-    pdf.drawString(x + 12, y - 18, title.upper())
+    pdf.drawString(x + 12, y - 17, title.upper())
     pdf.setFillColorRGB(*BRAND)
-    pdf.setFont("Helvetica-Bold", 24)
-    pdf.drawString(x + 12, y - 45, value)
+    pdf.setFont("Helvetica-Bold", 23)
+    pdf.drawString(x + 12, y - 42, value)
     pdf.setFillColorRGB(*accent)
-    pdf.roundRect(x + 12, y - h + 14, max(18, min(w - 24, float(value) / 100 * (w - 24))) if value.replace('.', '', 1).isdigit() else 48, 5, 2, fill=1, stroke=0)
+    pdf.roundRect(x + 12, y - h + 12, max(18, min(w - 24, float(value) / 100 * (w - 24))) if value.replace('.', '', 1).isdigit() else 48, 5, 2, fill=1, stroke=0)
     pdf.setFillColorRGB(*SLATE)
     pdf.setFont("Helvetica", 8)
-    pdf.drawString(x + 12, y - h + 28, subtitle[:42])
+    pdf.drawString(x + 12, y - h + 24, subtitle[:42])
 
 
 def _bar(pdf: canvas.Canvas, x: float, y: float, label: str, value: float, color=TEAL) -> float:
@@ -115,10 +115,10 @@ def _draw_header(pdf: canvas.Canvas, title: str, width: float, height: float):
     pdf.drawCentredString(1.4 * cm + 17, height - 1.78 * cm, "B")
     pdf.setFillColorRGB(*BRAND)
     pdf.setFont("Helvetica-Bold", 15)
-    pdf.drawString(2.5 * cm, height - 1.55 * cm, "BizIntel")
+    pdf.drawString(2.85 * cm, height - 1.55 * cm, "BizIntel")
     pdf.setFillColorRGB(*SLATE)
     pdf.setFont("Helvetica", 8)
-    pdf.drawString(2.5 * cm, height - 1.86 * cm, "Location intelligence report")
+    pdf.drawString(2.85 * cm, height - 1.86 * cm, "Location intelligence report")
     pdf.setStrokeColorRGB(*LINE)
     pdf.line(1.4 * cm, height - 2.45 * cm, width - 1.4 * cm, height - 2.45 * cm)
 
@@ -250,9 +250,10 @@ def _build_point_pdf(report: dict, entry: dict) -> bytes:
         pdf.line(margin, y - 6, margin + 250, y - 6)
         y -= 18
 
-    # Why this location (AI narrative), on the right column
+    # Why this location (AI narrative), on the right column - align its title with
+    # the signals section title (undo the per-row descent of the loop above).
     x2 = width / 2 + 0.4 * cm
-    y_right = y + 5 * 18 + 18
+    y_right = y + len(rows) * 18 + 18
     y_right = _section_title(pdf, "Why this location", x2, y_right)
     narrative_text = narrative or "A written explanation was not available when this report was generated."
     narr_bottom = _wrap_text(pdf, narrative_text, x2, y_right, 46, leading=11, size=9, max_lines=14)

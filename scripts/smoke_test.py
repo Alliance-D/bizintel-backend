@@ -12,7 +12,7 @@ import urllib.request
 CHECKS = [
     ('health', '/api/v1/health'),
     ('categories', '/api/v1/categories'),
-    ('experience manifest', '/api/v1/experience/manifest'),
+    ('translations', '/api/v1/i18n'),
 ]
 
 
@@ -22,12 +22,12 @@ def main() -> None:
     for name, path in CHECKS:
         try:
             with urllib.request.urlopen(base_url + path, timeout=20) as res:
-                print(f'✓ {name}: {res.status}')
+                print(f'[OK]   {name}: {res.status}')
         except urllib.error.HTTPError as exc:
-            print(f'✗ {name}: HTTP {exc.code}')
+            print(f'[FAIL] {name}: HTTP {exc.code}')
             sys.exit(1)
         except Exception as exc:
-            print(f'✗ {name}: {exc}')
+            print(f'[FAIL] {name}: {exc}')
             sys.exit(1)
     print('All smoke checks passed.')
 

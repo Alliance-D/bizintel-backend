@@ -71,14 +71,20 @@ def build_area_entry(db: Session, category: str, area: dict[str, Any], locale: s
     district = area["district"]
     sector = area.get("sector")
     cell = area.get("cell")
-    candidates = list_opportunity_cells(db, category=category, district=district, sector=sector, cell=cell, limit=3, locale=locale, with_landmarks=True)
+    top = list_opportunity_cells(db, category=category, district=district, sector=sector, cell=cell, limit=3, locale=locale, with_landmarks=True)
+    # Full ranked list for the "show all" toggle. Landmarks are skipped here
+    # (they cost one query per row); the featured top three keep their landmark
+    # labels, the rest fall back to their village/cell label.
+    full = list_opportunity_cells(db, category=category, district=district, sector=sector, cell=cell, limit=60, locale=locale, with_landmarks=False)
     return {
         "mode": "area",
         "label": area.get("label") or cell or sector or district,
         "district": district,
         "sector": sector,
         "cell": cell,
-        "top_candidates": candidates,
+        "top_candidates": top,
+        "more_candidates": full[3:],
+        "total_candidates": len(full),
     }
 
 

@@ -66,13 +66,17 @@ def nearest_landmark(db: Session, latitude: float, longitude: float, locale: str
     a proper place name is the same in either language.
     """
     try:
+        # Geometry KNN (<->) + a bbox ST_DWithin both use the GiST index on
+        # geom, so this is a fast index lookup rather than a per-row scan with
+        # the geography cast. ~0.0075 deg is roughly 800 m at Kigali's latitude;
+        # the exact radius is a heuristic for "a recognisable place nearby".
         row = db.execute(text("""
             SELECT name
             FROM curated.osm_poi_features
             WHERE name IS NOT NULL AND btrim(name) <> ''
               AND category_key IN ('market','transport','health','school','finance','commercial_support')
-              AND ST_DWithin(geom::geography, ST_SetSRID(ST_MakePoint(:lon,:lat),4326)::geography, 800)
-            ORDER BY ST_Distance(geom::geography, ST_SetSRID(ST_MakePoint(:lon,:lat),4326)::geography)
+              AND ST_DWithin(geom, ST_SetSRID(ST_MakePoint(:lon,:lat),4326), 0.0075)
+            ORDER BY geom <-> ST_SetSRID(ST_MakePoint(:lon,:lat),4326)
             LIMIT 1
         """), {"lon": longitude, "lat": latitude}).mappings().first()
         if row and row["name"]:

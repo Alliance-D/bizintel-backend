@@ -91,7 +91,6 @@ def is_available() -> bool:
 def build_context_prompt(assessment: dict[str, Any], user_context: dict[str, str] | None = None) -> str:
     """Pure function (no Gemini call) so the prompt content is unit-testable."""
     overall = assessment.get("overall", {})
-    factors = assessment.get("factors", {})
     competition = assessment.get("competition", {})
     signals = assessment.get("signals", {})
 

@@ -409,7 +409,6 @@ def main():
     # single-model comparison.
     best_name = "hurdle"
     best = {"algorithm": "hurdle", "status": "ok", "folds": hurdle_cv["folds"], "metrics": hm}
-    bm = hm
     cv_results = cv_results + [best]
 
     # Fit the final hurdle on all rows for the deployed scorer.

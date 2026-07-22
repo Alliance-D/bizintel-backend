@@ -335,7 +335,7 @@ def _recommendation(gap_score: float, expected_count: float | None, observed_cou
         return (f"Aha hantu hasa n'aho hatarigera hagerwaho bihagije: iteganya ni {expected_txt}, ariko {observed_count:.0f} ni byo biboneka ubu. Tangira isuzuma ku rubuga ku byerekeye ikodesha n'abandi bacuruza batemewe." if rw
                 else f"This area looks underserved: fundamentals predict about {expected_txt}, but only {observed_count:.0f} are observed nearby. Prioritize field checks for rent, frontage and informal competitors before committing.")
     if gap_score >= 55:
-        return (f"Hakiri umwanya wo gukura ugereranyije n'ibindi bice by'ubwoko bumwe. Gereranya n'andi mahitamo mbere yo kwiyemeza." if rw
+        return ("Hakiri umwanya wo gukura ugereranyije n'ibindi bice by'ubwoko bumwe. Gereranya n'andi mahitamo mbere yo kwiyemeza." if rw
                 else "Some room to grow relative to other areas for this category. Worth comparing with a couple of alternatives before committing.")
     if gap_score >= 25:
         return ("Ibiboneka n'ubukenewe bingana muri iki gice. Kwitandukanya aho gutanga ibisanzwe bishobora gukenewe kugira ngo wihagararaho." if rw

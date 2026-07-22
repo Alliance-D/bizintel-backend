@@ -14,7 +14,6 @@ Notes:
 from __future__ import annotations
 
 import argparse
-import os
 import subprocess
 import warnings
 from pathlib import Path

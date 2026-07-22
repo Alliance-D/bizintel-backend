@@ -1,8 +1,8 @@
 """Long-running admin operations (retraining, model activation) run as a
 background subprocess rather than blocking a request. This is intentionally
 simple - a single-worker lock and a log file - rather than a full job queue
-(Celery/RQ), which isn't justified at this project's scale yet. If usage
-grows, app/jobs/task_queue.py is the seam to swap in a real queue.
+(Celery/RQ), which isn't justified at this project's scale yet. Swapping in a
+real queue later would replace this module without touching its callers.
 """
 from __future__ import annotations
 

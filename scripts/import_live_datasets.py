@@ -14,7 +14,6 @@ import argparse
 import json
 import os
 from pathlib import Path
-from typing import Iterable
 
 import pandas as pd
 from sqlalchemy import create_engine, text
